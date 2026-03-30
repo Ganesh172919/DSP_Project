@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/lib/api.ts","./src/lib/landmark-math.ts","./src/lib/types.ts","./src/lib/use-biometric-capture.ts","./src/pages/admin-page.tsx","./src/pages/authenticate-page.tsx","./src/pages/help-page.tsx","./src/pages/landing-page.tsx","./src/pages/profile-page.tsx","./src/pages/register-page.tsx"],"version":"5.9.3"}

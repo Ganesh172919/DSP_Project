@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="DeepShield Guardian">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#73f7d7" />
+      <stop offset="100%" stop-color="#8ca7ff" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="18" fill="#071726" />
+  <path d="M32 8l18 8v13c0 12.8-7.4 22.8-18 27-10.6-4.2-18-14.2-18-27V16l18-8z" fill="url(#g)" />
+  <path d="M24 25c0-4.4 3.6-8 8-8s8 3.6 8 8v3c0 1.1-.9 2-2 2H26c-1.1 0-2-.9-2-2v-3zm5 10h6a6 6 0 016 6v1H23v-1a6 6 0 016-6z" fill="#071726" />
+</svg>

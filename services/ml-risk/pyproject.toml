@@ -1,0 +1,17 @@
+[project]
+name = "deepshield-guardian-ml-risk"
+version = "0.1.0"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "fastapi>=0.115.12",
+  "numpy>=2.2.4",
+  "pillow>=11.1.0",
+  "uvicorn[standard]>=0.34.0"
+]
+
+[build-system]
+requires = ["setuptools>=80.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]

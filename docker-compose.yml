@@ -1,0 +1,86 @@
+version: "3.9"
+
+services:
+  reverse-proxy:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - frontend
+      - backend
+
+  frontend:
+    image: node:22-alpine
+    working_dir: /workspace/apps/web
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
+    environment:
+      VITE_API_BASE_URL: http://localhost/api/v1
+    volumes:
+      - .:/workspace
+    expose:
+      - "5173"
+
+  backend:
+    image: python:3.11-slim
+    working_dir: /workspace/services/api
+    command: sh -c "pip install -e . && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    environment:
+      APP_NAME: DeepShield Guardian API
+      DATABASE_URL: postgresql+asyncpg://guardian:guardian@database:5432/guardian
+      REDIS_URL: redis://cache:6379/0
+      SECRET_KEY: change-me-before-production
+      BIOMETRIC_MASTER_KEY: 0123456789abcdef0123456789abcdef
+      FACE_SERVICE_URL: http://face-detection:8001
+      RISK_SERVICE_URL: http://deepfake-detection:8002
+      CORS_ORIGINS: http://localhost,http://localhost:5173
+    volumes:
+      - .:/workspace
+    depends_on:
+      - database
+      - cache
+      - face-detection
+      - deepfake-detection
+    expose:
+      - "8000"
+
+  face-detection:
+    image: python:3.11-slim
+    working_dir: /workspace/services/ml-face
+    command: sh -c "pip install -e . && uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload"
+    volumes:
+      - .:/workspace
+    expose:
+      - "8001"
+
+  deepfake-detection:
+    image: python:3.11-slim
+    working_dir: /workspace/services/ml-risk
+    command: sh -c "pip install -e . && uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload"
+    volumes:
+      - .:/workspace
+    expose:
+      - "8002"
+
+  database:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: guardian
+      POSTGRES_USER: guardian
+      POSTGRES_PASSWORD: guardian
+    ports:
+      - "5432:5432"
+    volumes:
+      - guardian-pg:/var/lib/postgresql/data
+
+  cache:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - guardian-redis:/data
+
+volumes:
+  guardian-pg:
+  guardian-redis:

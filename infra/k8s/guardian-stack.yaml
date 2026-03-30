@@ -1,0 +1,237 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: guardian
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: guardian-config
+  namespace: guardian
+data:
+  APP_NAME: DeepShield Guardian API
+  DATABASE_URL: postgresql+asyncpg://guardian:guardian@guardian-postgres:5432/guardian
+  REDIS_URL: redis://guardian-redis:6379/0
+  FACE_SERVICE_URL: http://guardian-ml-face:8001
+  RISK_SERVICE_URL: http://guardian-ml-risk:8002
+  CORS_ORIGINS: http://localhost
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: guardian-secrets
+  namespace: guardian
+type: Opaque
+stringData:
+  SECRET_KEY: change-me
+  BIOMETRIC_MASTER_KEY: 0123456789abcdef0123456789abcdef
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: guardian-api
+  namespace: guardian
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: guardian-api
+  template:
+    metadata:
+      labels:
+        app: guardian-api
+    spec:
+      containers:
+        - name: api
+          image: deepshield-guardian-api:latest
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: guardian-config
+            - secretRef:
+                name: guardian-secrets
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: guardian-api
+  namespace: guardian
+spec:
+  selector:
+    app: guardian-api
+  ports:
+    - port: 8000
+      targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: guardian-web
+  namespace: guardian
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: guardian-web
+  template:
+    metadata:
+      labels:
+        app: guardian-web
+    spec:
+      containers:
+        - name: web
+          image: deepshield-guardian-web:latest
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: guardian-web
+  namespace: guardian
+spec:
+  selector:
+    app: guardian-web
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: guardian-ml-face
+  namespace: guardian
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: guardian-ml-face
+  template:
+    metadata:
+      labels:
+        app: guardian-ml-face
+    spec:
+      containers:
+        - name: ml-face
+          image: deepshield-guardian-ml-face:latest
+          ports:
+            - containerPort: 8001
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: guardian-ml-face
+  namespace: guardian
+spec:
+  selector:
+    app: guardian-ml-face
+  ports:
+    - port: 8001
+      targetPort: 8001
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: guardian-ml-risk
+  namespace: guardian
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: guardian-ml-risk
+  template:
+    metadata:
+      labels:
+        app: guardian-ml-risk
+    spec:
+      containers:
+        - name: ml-risk
+          image: deepshield-guardian-ml-risk:latest
+          ports:
+            - containerPort: 8002
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: guardian-ml-risk
+  namespace: guardian
+spec:
+  selector:
+    app: guardian-ml-risk
+  ports:
+    - port: 8002
+      targetPort: 8002
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: guardian-postgres
+  namespace: guardian
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: guardian-postgres
+  template:
+    metadata:
+      labels:
+        app: guardian-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:18-alpine
+          env:
+            - name: POSTGRES_DB
+              value: guardian
+            - name: POSTGRES_USER
+              value: guardian
+            - name: POSTGRES_PASSWORD
+              value: guardian
+          ports:
+            - containerPort: 5432
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: guardian-postgres
+  namespace: guardian
+spec:
+  selector:
+    app: guardian-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: guardian-redis
+  namespace: guardian
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: guardian-redis
+  template:
+    metadata:
+      labels:
+        app: guardian-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7.4-alpine
+          ports:
+            - containerPort: 6379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: guardian-redis
+  namespace: guardian
+spec:
+  selector:
+    app: guardian-redis
+  ports:
+    - port: 6379
+      targetPort: 6379
