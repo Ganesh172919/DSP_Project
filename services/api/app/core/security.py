@@ -1,3 +1,5 @@
+import base64
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -8,11 +10,13 @@ from app.core.config import get_settings
 
 
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    normalized = base64.b64encode(hashlib.sha256(password.encode("utf-8")).digest())
+    return bcrypt.hashpw(normalized, bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(password: str, hashed_password: str) -> bool:
-    return bcrypt.checkpw(password.encode("utf-8"), hashed_password.encode("utf-8"))
+    normalized = base64.b64encode(hashlib.sha256(password.encode("utf-8")).digest())
+    return bcrypt.checkpw(normalized, hashed_password.encode("utf-8"))
 
 
 def create_access_token(subject: str, extra_claims: dict[str, Any] | None = None) -> str:

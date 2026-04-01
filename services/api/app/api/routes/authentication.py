@@ -1,8 +1,6 @@
 """Authentication routes — challenge-response biometric verification."""
 
 from __future__ import annotations
-
-import json
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -10,7 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.core.database import get_db_session
 from app.models import AuditEvent, AuthenticationAttempt, User
 from app.schemas.auth import (
@@ -24,7 +21,7 @@ from app.schemas.auth import (
 from app.services.biometric_crypto import decrypt_template
 from app.services.challenge_engine import select_challenges
 from app.services.decision_engine import build_stage_results, compute_decision
-from app.services.feature_extractor import compare_template, extract_geometry_metrics
+from app.services.feature_extractor import compare_template
 from app.services.liveness import evaluate_sequence
 from app.services.risk import analyze_frame_risk
 
@@ -32,6 +29,12 @@ router = APIRouter(prefix="/authentication", tags=["authentication"])
 
 MAX_ATTEMPTS = 3
 LOCKOUT_MINUTES = 15
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 @router.post("/start", response_model=AuthenticationStartResponse)
@@ -46,15 +49,15 @@ async def start_authentication(
         raise HTTPException(status_code=400, detail="Registration not completed. Please complete enrollment first.")
 
     # Account lockout check
-    if user.locked_until and datetime.now(timezone.utc) < user.locked_until:
-        remaining = (user.locked_until - datetime.now(timezone.utc)).seconds // 60
+    if user.locked_until and datetime.now(timezone.utc) < _as_utc(user.locked_until):
+        remaining = (_as_utc(user.locked_until) - datetime.now(timezone.utc)).seconds // 60
         raise HTTPException(
             status_code=423,
             detail=f"Account temporarily locked due to {MAX_ATTEMPTS} failed attempts. Try again in {remaining + 1} minutes."
         )
 
     # Reset lockout if expired
-    if user.locked_until and datetime.now(timezone.utc) >= user.locked_until:
+    if user.locked_until and datetime.now(timezone.utc) >= _as_utc(user.locked_until):
         user.locked_until = None
         user.failed_consecutive_attempts = 0
 
@@ -99,8 +102,6 @@ async def submit_authentication_frame(
     body: ObservationFrame,
     session: AsyncSession = Depends(get_db_session),
 ):
-    settings = get_settings()
-
     attempt = (await session.scalars(
         select(AuthenticationAttempt).where(AuthenticationAttempt.id == attempt_id)
     )).first()
@@ -108,7 +109,7 @@ async def submit_authentication_frame(
         raise HTTPException(status_code=404, detail="Authentication attempt not found")
     if attempt.status != "active":
         raise HTTPException(status_code=410, detail="Attempt already completed")
-    if datetime.now(timezone.utc) > attempt.expires_at:
+    if datetime.now(timezone.utc) > _as_utc(attempt.expires_at):
         attempt.status = "expired"
         await session.commit()
         raise HTTPException(status_code=410, detail="Authentication attempt expired")
@@ -118,8 +119,7 @@ async def submit_authentication_frame(
         raise HTTPException(status_code=404, detail="User template not found")
 
     # Decrypt template
-    template_data = decrypt_template(user.biometric_template, settings.biometric_master_key, user.id)
-    template = json.loads(template_data.decode())
+    template = decrypt_template(user.id, user.biometric_template)
 
     # Risk analysis
     t0 = time.monotonic()
@@ -135,7 +135,7 @@ async def submit_authentication_frame(
     )
 
     # Store observation
-    observations = attempt.observations or []
+    observations = list(attempt.observations or [])
     observations.append({
         "step": body.step,
         "challenge_id": body.challenge_id,
@@ -153,7 +153,7 @@ async def submit_authentication_frame(
     attempt.observations = observations
 
     # Update latency tracking
-    latencies = attempt.stage_latencies or {}
+    latencies = dict(attempt.stage_latencies or {})
     latencies[f"frame_{len(observations)}"] = round((time.monotonic() - t0) * 1000, 1)
     attempt.stage_latencies = latencies
 
@@ -185,8 +185,6 @@ async def complete_authentication(
     attempt_id: str,
     session: AsyncSession = Depends(get_db_session),
 ):
-    settings = get_settings()
-
     attempt = (await session.scalars(
         select(AuthenticationAttempt).where(AuthenticationAttempt.id == attempt_id)
     )).first()
@@ -199,8 +197,7 @@ async def complete_authentication(
     if not user or not user.biometric_template:
         raise HTTPException(status_code=404, detail="User template not found")
 
-    template_data = decrypt_template(user.biometric_template, settings.biometric_master_key, user.id)
-    template = json.loads(template_data.decode())
+    template = decrypt_template(user.id, user.biometric_template)
 
     observations = attempt.observations or []
     challenges = attempt.challenges or []

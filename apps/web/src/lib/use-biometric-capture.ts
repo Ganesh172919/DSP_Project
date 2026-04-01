@@ -65,7 +65,27 @@ export function useBiometricCapture() {
 
       const video = await waitForVideoRef();
       video.srcObject = stream;
-      await video.play();
+
+      if (video.readyState < HTMLMediaElement.HAVE_METADATA) {
+        await new Promise<void>((resolve) => {
+          const handleLoadedMetadata = () => resolve();
+          video.addEventListener("loadedmetadata", handleLoadedMetadata, { once: true });
+        });
+      }
+
+      try {
+        await video.play();
+      } catch (error) {
+        const playWasInterrupted =
+          error instanceof DOMException &&
+          error.name === "AbortError" &&
+          (cancelled || video.srcObject !== stream);
+
+        if (!playWasInterrupted) {
+          throw error;
+        }
+      }
+
       return stream;
     }
 

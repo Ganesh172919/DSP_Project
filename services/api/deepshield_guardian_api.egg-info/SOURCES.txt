@@ -18,8 +18,10 @@ app/services/audit.py
 app/services/biometric_crypto.py
 app/services/challenge_engine.py
 app/services/decision_engine.py
+app/services/deepfake_detector.py
 app/services/feature_extractor.py
 app/services/liveness.py
+app/services/pad_detector.py
 app/services/risk.py
 deepshield_guardian_api.egg-info/PKG-INFO
 deepshield_guardian_api.egg-info/SOURCES.txt

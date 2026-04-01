@@ -1,18 +1,15 @@
 """Registration routes — multi-angle biometric enrollment."""
 
 from __future__ import annotations
-
-import json
 from datetime import datetime, timedelta, timezone
 from statistics import mean
 
 from fastapi import APIRouter, Depends, HTTPException
-from passlib.hash import bcrypt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.core.database import get_db_session
+from app.core.security import hash_password
 from app.models import AuditEvent, EnrollmentSession, User
 from app.schemas.auth import (
     FrameAckResponse,
@@ -21,11 +18,9 @@ from app.schemas.auth import (
     RegistrationStartRequest,
     RegistrationStartResponse,
 )
-from app.services.biometric_crypto import decrypt_template, encrypt_template
+from app.services.biometric_crypto import encrypt_template
 from app.services.feature_extractor import (
     build_template,
-    compute_embedding,
-    extract_geometry_metrics,
 )
 from app.services.risk import analyze_frame_risk
 
@@ -35,13 +30,17 @@ REQUIRED_STEPS = ["front", "left", "right", "up", "down",
                   "smile", "frown", "brow_raise", "squint", "mouth_open"]
 
 
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 @router.post("/start", response_model=RegistrationStartResponse)
 async def start_registration(
     body: RegistrationStartRequest,
     session: AsyncSession = Depends(get_db_session),
 ):
-    settings = get_settings()
-
     # Check if user already exists
     existing = (await session.scalars(select(User).where(User.email == body.email))).first()
     if existing and existing.registration_completed:
@@ -51,13 +50,13 @@ async def start_registration(
     if existing:
         user = existing
         user.full_name = body.full_name
-        user.password_hash = bcrypt.hash(body.password)
+        user.password_hash = hash_password(body.password)
         user.accessibility_profile = body.accessibility_profile
     else:
         user = User(
             email=body.email,
             full_name=body.full_name,
-            password_hash=bcrypt.hash(body.password),
+            password_hash=hash_password(body.password),
             accessibility_profile=body.accessibility_profile,
         )
         session.add(user)
@@ -99,7 +98,7 @@ async def submit_frame(
         raise HTTPException(status_code=404, detail="Enrollment session not found")
     if enrollment.status != "active":
         raise HTTPException(status_code=410, detail="Enrollment session already completed or expired")
-    if datetime.now(timezone.utc) > enrollment.expires_at:
+    if datetime.now(timezone.utc) > _as_utc(enrollment.expires_at):
         enrollment.status = "expired"
         await session.commit()
         raise HTTPException(status_code=410, detail="Enrollment session expired")
@@ -138,7 +137,7 @@ async def submit_frame(
         accepted = False
 
     if accepted:
-        captures = enrollment.captures or []
+        captures = list(enrollment.captures or [])
         captures.append({
             "step": body.step,
             "landmarks": body.landmarks,
@@ -148,11 +147,11 @@ async def submit_frame(
         })
         enrollment.captures = captures
 
-        quality_scores = enrollment.quality_scores or []
+        quality_scores = list(enrollment.quality_scores or [])
         quality_scores.append(quality)
         enrollment.quality_scores = quality_scores
 
-        completed = enrollment.completed_steps or []
+        completed = list(enrollment.completed_steps or [])
         if body.step not in completed:
             completed.append(body.step)
         enrollment.completed_steps = completed
@@ -176,8 +175,6 @@ async def complete_registration(
     session_id: str,
     session: AsyncSession = Depends(get_db_session),
 ):
-    settings = get_settings()
-
     enrollment = (await session.scalars(
         select(EnrollmentSession).where(EnrollmentSession.id == session_id)
     )).first()
@@ -196,10 +193,10 @@ async def complete_registration(
 
     quality = mean(enrollment.quality_scores or [50.0])
     template = build_template(captures, quality)
-    encrypted, salt = encrypt_template(json.dumps(template).encode(), settings.biometric_master_key, user.id)
+    encrypted, salt = encrypt_template(user.id, template)
 
     user.biometric_template = encrypted
-    user.biometric_salt = salt
+    user.biometric_salt = salt.encode("utf-8")
     user.template_quality_score = quality
     user.security_score = template.get("security_score", 0.0)
     user.registration_completed = True

@@ -1,0 +1,8 @@
+pyproject.toml
+app/__init__.py
+app/main.py
+deepshield_guardian_ml_face.egg-info/PKG-INFO
+deepshield_guardian_ml_face.egg-info/SOURCES.txt
+deepshield_guardian_ml_face.egg-info/dependency_links.txt
+deepshield_guardian_ml_face.egg-info/requires.txt
+deepshield_guardian_ml_face.egg-info/top_level.txt

@@ -21,6 +21,33 @@ from .deepfake_detector import (
 )
 
 
+def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
+    return max(low, min(value, high))
+
+
+def _framing_score(metrics: dict[str, Any]) -> float:
+    if not metrics.get("face_present"):
+        return 0.0
+
+    face_size_ratio = float(metrics.get("face_size_ratio") or 0.0)
+    pitch = abs(float(metrics.get("pitch") or 0.0))
+    roll = abs(float(metrics.get("roll") or 0.0))
+    hand_near_face = bool(metrics.get("hand_near_face"))
+    quality_hint = str(metrics.get("quality_hint") or "")
+
+    size_score = _clamp((face_size_ratio - 0.04) / 0.10)
+    pose_score = 1.0 - min(1.0, (roll / 30.0) * 0.7 + (pitch / 25.0) * 0.3)
+    occlusion_score = 0.55 if hand_near_face else 1.0
+    hint_score = 1.0 if quality_hint == "Ready" else 0.75
+
+    return _clamp(
+        0.45 * size_score +
+        0.25 * pose_score +
+        0.15 * occlusion_score +
+        0.15 * hint_score
+    )
+
+
 def _decode_frame(frame_b64: str | None) -> np.ndarray | None:
     """Decode a base64-encoded JPEG/PNG frame to a numpy array."""
     if not frame_b64:
@@ -82,13 +109,19 @@ def analyze_frame_risk(
     )
 
     # ── Image quality metrics ──
+    framing = _framing_score(metrics)
     if image is not None:
         gray = image.mean(axis=2) if image.ndim == 3 else image
         gx = np.abs(np.diff(gray, axis=1)).mean()
         gy = np.abs(np.diff(gray, axis=0)).mean()
-        sharpness = max(0.0, min(float((gx + gy) / 50), 1.0))
+        sharpness = _clamp(float((gx + gy) / 12.0))
         exposure = float(gray.mean() / 255.0)
-        quality_score = (0.5 * sharpness + 0.5 * (1 - abs(exposure - 0.5))) * 100
+        exposure_score = _clamp(1 - abs(exposure - 0.5) * 1.8)
+        quality_score = (
+            0.45 * sharpness +
+            0.30 * exposure_score +
+            0.25 * framing
+        ) * 100
 
         if sharpness < 0.3:
             guidance.append("Image is blurry – hold the camera steady")
@@ -99,7 +132,7 @@ def analyze_frame_risk(
     else:
         sharpness = 0.5
         exposure = 0.5
-        quality_score = 55.0
+        quality_score = 45.0 + framing * 25.0
         guidance.append("Frame unavailable")
 
     # Merge anomalies
@@ -115,6 +148,7 @@ def analyze_frame_risk(
         "quality_score": round(quality_score, 2),
         "sharpness": round(sharpness, 4),
         "exposure": round(exposure, 4),
+        "framing": round(framing, 4),
         "guidance": guidance,
         "anomalies": anomalies,
         "pad_detail": pad_result,
