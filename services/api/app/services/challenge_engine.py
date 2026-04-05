@@ -84,9 +84,25 @@ SECURITY_LEVELS = {
 }
 
 
+CLIENT_SAFE_KEYS = ("id", "title", "description", "category", "duration_seconds")
+
+
+def _serialise_challenge(challenge: dict[str, Any], include_internal: bool = False) -> dict[str, Any]:
+    payload = {key: challenge[key] for key in CLIENT_SAFE_KEYS}
+    if include_internal:
+        payload.update({
+            "difficulty": challenge["difficulty"],
+            "verifier": challenge["verifier"],
+            "implemented": challenge["implemented"],
+        })
+    return payload
+
+
 def select_challenges(
-    security_level: str = "enhanced",
+    security_level: str | dict[str, bool] = "enhanced",
     accessibility_profile: dict[str, bool] | None = None,
+    count: int | None = None,
+    include_internal: bool = False,
 ) -> list[dict]:
     """Select a randomised set of challenges respecting user accessibility and security level.
 
@@ -97,9 +113,15 @@ def select_challenges(
 
     Returns a list of challenge dicts suitable for sending to the client.
     """
-    prefs = accessibility_profile or {}
-    config = SECURITY_LEVELS.get(security_level, SECURITY_LEVELS["enhanced"])
-    target_count = config["challenge_count"]
+    if isinstance(security_level, dict):
+        prefs = security_level
+        selected_level = "enhanced"
+    else:
+        prefs = accessibility_profile or {}
+        selected_level = security_level
+
+    config = SECURITY_LEVELS.get(selected_level, SECURITY_LEVELS["enhanced"])
+    target_count = count or config["challenge_count"]
     max_diff = config["max_difficulty"]
     required_cats = config["required_categories"]
 
@@ -143,13 +165,4 @@ def select_challenges(
     random.shuffle(selected)
 
     # Return client-safe dicts
-    return [
-        {
-            "id": c["id"],
-            "title": c["title"],
-            "description": c["description"],
-            "category": c["category"],
-            "duration_seconds": c["duration_seconds"],
-        }
-        for c in selected
-    ]
+    return [_serialise_challenge(c, include_internal=include_internal) for c in selected]

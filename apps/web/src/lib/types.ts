@@ -17,6 +17,40 @@ export interface StageResult {
   threshold?: number;
 }
 
+export interface LiveChallengeTelemetry {
+  id: string;
+  title: string;
+  frames_processed: number;
+  progress: number;
+  status: string;
+  score?: number | null;
+  passed?: boolean | null;
+  message: string;
+}
+
+export interface LiveProcessingTelemetry {
+  processed_frames: number;
+  processed_challenges: number;
+  total_challenges: number;
+  liveness_preview_score: number;
+  current_challenge_id?: string | null;
+  current_challenge_title?: string | null;
+  current_challenge_frames: number;
+  current_challenge_progress: number;
+  current_challenge_score?: number | null;
+  current_challenge_passed?: boolean | null;
+  current_challenge_message: string;
+  processing_time_ms: number;
+  capture_age_ms?: number | null;
+  quality_score: number;
+  pad_score: number;
+  deepfake_score: number;
+  frame_analysis_available: boolean;
+  provisional_risk: boolean;
+  guidance: string[];
+  challenge_results: LiveChallengeTelemetry[];
+}
+
 export interface ChallengeDefinition {
   id: string;
   title: string;
@@ -56,8 +90,10 @@ export interface AuthenticationStateResponse {
   final_score?: number;
   authenticated?: boolean;
   anomalies: string[];
+  denial_reasons: string[];
   needs_review?: boolean;
   attempts_remaining?: number;
+  live_telemetry?: LiveProcessingTelemetry | null;
 }
 
 export interface DashboardMetrics {

@@ -28,6 +28,11 @@ export function useBiometricCapture() {
   const streamRef = useRef<MediaStream | null>(null);
   const faceRef = useRef<FaceLandmarker | null>(null);
   const handRef = useRef<HandLandmarker | null>(null);
+  const lastSnapshotRef = useRef<ObservationSnapshot>({
+    landmarks: [],
+    hand_landmarks: [],
+    client_metrics: { face_present: false }
+  });
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -97,7 +102,7 @@ export function useBiometricCapture() {
         return FaceLandmarker.createFromOptions(vision, {
           baseOptions: { modelAssetPath: FACE_MODEL, delegate },
           runningMode: "VIDEO",
-          numFaces: 1,
+          numFaces: 2,
           outputFaceBlendshapes: true
         });
       }
@@ -198,13 +203,18 @@ export function useBiometricCapture() {
       const handResult = handRef.current?.detectForVideo(video, now) as HandLandmarkerResult | undefined;
       const faceLandmarks = faceResult?.faceLandmarks?.[0] ?? [];
       const hands = handResult?.landmarks ?? [];
-      const metrics = extractMetrics(faceLandmarks, hands);
-
-      setLastSnapshot({
+      const metrics = {
+        ...extractMetrics(faceLandmarks, hands),
+        face_count: faceResult?.faceLandmarks?.length ?? 0
+      };
+      const nextSnapshot = {
         landmarks: summarizeLandmarks(faceLandmarks),
         hand_landmarks: summarizeHands(hands),
         client_metrics: metrics
-      });
+      };
+
+      lastSnapshotRef.current = nextSnapshot;
+      setLastSnapshot(nextSnapshot);
 
       frameRequestRef.current = requestAnimationFrame(loop);
     };
@@ -223,7 +233,7 @@ export function useBiometricCapture() {
       const video = videoRef.current;
       const canvas = canvasRef.current;
       if (!video || !canvas) {
-        return lastSnapshot;
+        return lastSnapshotRef.current;
       }
 
       canvas.width = video.videoWidth || 1280;
@@ -232,11 +242,11 @@ export function useBiometricCapture() {
       context?.drawImage(video, 0, 0, canvas.width, canvas.height);
 
       return {
-        ...lastSnapshot,
+        ...lastSnapshotRef.current,
         frame_b64: canvas.toDataURL("image/jpeg", 0.82)
       };
     },
-    [lastSnapshot]
+    []
   );
 
   return {

@@ -275,6 +275,10 @@ def analyze_presentation_attack(
         1.0
     ))
 
+    # Floor PAD score for real detected faces with no anomalies
+    if face_present and not anomalies and pad_score < 0.58:
+        pad_score = 0.58
+
     # Flag anomalies
     if screen["moire_risk"] > 0.45:
         anomalies.append("Possible screen replay – moiré pattern detected")

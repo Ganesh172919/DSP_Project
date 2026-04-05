@@ -16,7 +16,7 @@ async def get_profile(
     email: str = Query(...),
     session: AsyncSession = Depends(get_db_session),
 ) -> UserProfileResponse:
-    user = await session.scalar(select(User).where(User.email == email))
+    user = await session.scalar(select(User).where(User.email == email.strip().lower()))
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 

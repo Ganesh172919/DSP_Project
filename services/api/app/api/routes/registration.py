@@ -36,13 +36,19 @@ def _as_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def _normalise_email(email: str) -> str:
+    return email.strip().lower()
+
+
 @router.post("/start", response_model=RegistrationStartResponse)
 async def start_registration(
     body: RegistrationStartRequest,
     session: AsyncSession = Depends(get_db_session),
 ):
+    email = _normalise_email(str(body.email))
+
     # Check if user already exists
-    existing = (await session.scalars(select(User).where(User.email == body.email))).first()
+    existing = (await session.scalars(select(User).where(User.email == email))).first()
     if existing and existing.registration_completed:
         raise HTTPException(status_code=409, detail="Email already registered. Use the profile page to re-enroll.")
 
@@ -50,11 +56,12 @@ async def start_registration(
     if existing:
         user = existing
         user.full_name = body.full_name
+        user.email = email
         user.password_hash = hash_password(body.password)
         user.accessibility_profile = body.accessibility_profile
     else:
         user = User(
-            email=body.email,
+            email=email,
             full_name=body.full_name,
             password_hash=hash_password(body.password),
             accessibility_profile=body.accessibility_profile,
@@ -74,7 +81,7 @@ async def start_registration(
         event_type="registration_started",
         severity="info",
         user_id=user.id,
-        message=f"Registration started for {body.email}",
+        message=f"Registration started for {email}",
     ))
 
     await session.commit()
@@ -118,7 +125,7 @@ async def submit_frame(
     quality = risk.get("quality_score", 50.0)
 
     # Quality gate — reject frames below threshold
-    accepted = quality >= 40.0 and bool(body.client_metrics.get("face_present"))
+    accepted = quality >= 35.0 and bool(body.client_metrics.get("face_present"))
 
     if not body.client_metrics.get("face_present"):
         guidance.insert(0, "No face detected — position yourself within the guide")

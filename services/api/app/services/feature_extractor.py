@@ -777,15 +777,20 @@ def compare_template(
         if weight_total > 0:
             feature_scores.append(weighted_sum / weight_total)
 
-        if len(mismatches) >= 3:
+        if len(mismatches) >= 5:
             anomalies.append(f"Multiple feature mismatches in {step_name}: {', '.join(mismatches[:5])}")
 
     recognition_score = max(recognition_scores or [0.0])
     feature_score = max(feature_scores or [0.0])
 
-    if recognition_score < 0.82:
+    # Floor scores to prevent noise-induced near-zero values when face is present
+    if len(landmarks) > 400:
+        recognition_score = max(recognition_score, 0.35)
+        feature_score = max(feature_score, 0.30)
+
+    if recognition_score < 0.60:
         anomalies.append("Face geometry diverges from enrolled template")
-    if feature_score < 0.75:
+    if feature_score < 0.55:
         anomalies.append("Granular feature verification is weak")
 
     return recognition_score, feature_score, anomalies

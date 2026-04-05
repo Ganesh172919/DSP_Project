@@ -78,14 +78,50 @@ class StageResult(BaseModel):
     threshold: float = 0.0
 
 
+class LiveChallengeTelemetry(BaseModel):
+    id: str
+    title: str
+    frames_processed: int = 0
+    progress: float = 0.0
+    status: str = "pending"
+    score: float | None = None
+    passed: bool | None = None
+    message: str = ""
+
+
+class LiveProcessingTelemetry(BaseModel):
+    processed_frames: int = 0
+    processed_challenges: int = 0
+    total_challenges: int = 0
+    liveness_preview_score: float = 0.0
+    current_challenge_id: str | None = None
+    current_challenge_title: str | None = None
+    current_challenge_frames: int = 0
+    current_challenge_progress: float = 0.0
+    current_challenge_score: float | None = None
+    current_challenge_passed: bool | None = None
+    current_challenge_message: str = ""
+    processing_time_ms: float = 0.0
+    capture_age_ms: float | None = None
+    quality_score: float = 0.0
+    pad_score: float = 0.0
+    deepfake_score: float = 0.0
+    frame_analysis_available: bool = False
+    provisional_risk: bool = False
+    guidance: list[str] = Field(default_factory=list)
+    challenge_results: list[LiveChallengeTelemetry] = Field(default_factory=list)
+
+
 class AuthenticationStateResponse(BaseModel):
     attempt_id: str
     stage_results: list[StageResult]
     final_score: float | None = None
     authenticated: bool | None = None
     anomalies: list[str] = Field(default_factory=list)
+    denial_reasons: list[str] = Field(default_factory=list)
     needs_review: bool = False
     attempts_remaining: int = 3
+    live_telemetry: LiveProcessingTelemetry | None = None
 
 
 # ── Admin ──

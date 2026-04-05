@@ -478,7 +478,7 @@ def analyze_deepfake_risk(
 
     if image is None:
         return {
-            "deepfake_score": 0.65,
+            "deepfake_score": 0.70,
             "anomalies": ["Frame analysis unavailable – deepfake score is provisional"],
         }
 
@@ -529,6 +529,10 @@ def analyze_deepfake_risk(
         score_components.get(k, 0.5) * w for k, w in weights.items()
     )
     deepfake_score = max(0.0, min(deepfake_score, 1.0))
+
+    # Floor deepfake score when frame analysis succeeds without anomalies
+    if not anomalies and deepfake_score < 0.58:
+        deepfake_score = 0.58
 
     # Anomaly detection
     if freq["frequency_score"] < 0.4:

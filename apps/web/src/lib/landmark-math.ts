@@ -48,10 +48,15 @@ function boundingBox(landmarks: Point[]) {
   };
 }
 
+function clamp(value: number, min = 0, max = 1) {
+  return Math.max(min, Math.min(max, value));
+}
+
 export function extractMetrics(rawLandmarks: Point[] = [], handLandmarks: Point[][] = []) {
   if (!rawLandmarks.length) {
     return {
       face_present: false,
+      face_count: 0,
       face_size_ratio: 0,
       ear_left: 0,
       ear_right: 0,
@@ -66,6 +71,14 @@ export function extractMetrics(rawLandmarks: Point[] = [], handLandmarks: Point[
       inter_pupillary_distance: 0,
       face_width: 0,
       face_height: 0,
+      face_center_x: 0,
+      face_center_y: 0,
+      eye_line_y: 0,
+      face_top_margin: 0,
+      face_bottom_margin: 0,
+      face_left_margin: 0,
+      face_right_margin: 0,
+      alignment_score: 0,
       chin_to_forehead: 0,
       hand_count: 0,
       hand_near_face: false,
@@ -108,11 +121,36 @@ export function extractMetrics(rawLandmarks: Point[] = [], handLandmarks: Point[
     const palm = avg(hand.slice(0, 5));
     return distance(palm, faceCenter) < faceWidth * 0.75;
   });
+  const rollDegrees = (roll * 180) / Math.PI;
+  const faceTopMargin = box.minY;
+  const faceBottomMargin = 1 - box.maxY;
+  const faceLeftMargin = box.minX;
+  const faceRightMargin = 1 - box.maxX;
+  const sizeScore = clamp((faceWidth * faceHeight - 0.04) / 0.07);
+  const centerScore = clamp(1 - (Math.abs(faceCenter.x - 0.5) / 0.22));
+  const eyeLineScore = clamp(1 - (Math.abs(eyeMid.y - 0.40) / 0.22));
+  const marginScore = clamp(Math.min(faceTopMargin, faceBottomMargin) / 0.05);
+  const poseScore = clamp(1 - Math.abs(rollDegrees) / 20);
+  const alignmentScore = clamp(
+    0.30 * sizeScore +
+    0.25 * centerScore +
+    0.25 * eyeLineScore +
+    0.10 * marginScore +
+    0.10 * poseScore
+  );
 
   const qualityHint =
-    faceWidth < 0.18
+    faceWidth < 0.15
       ? "Move closer to the camera"
-      : Math.abs(roll) > 0.45
+      : eyeMid.y > 0.50 || faceBottomMargin < 0.05
+        ? "Raise the camera or tilt screen upward"
+        : eyeMid.y < 0.15 || faceTopMargin < 0.02
+          ? "Lower the camera slightly"
+          : faceCenter.x < 0.30
+            ? "Move your face to the right"
+            : faceCenter.x > 0.70
+              ? "Move your face to the left"
+              : Math.abs(roll) > 0.30
         ? "Straighten your head"
         : "Ready";
 
@@ -132,6 +170,14 @@ export function extractMetrics(rawLandmarks: Point[] = [], handLandmarks: Point[
     inter_pupillary_distance: Number(distance(leftEyeAvg, rightEyeAvg).toFixed(4)),
     face_width: Number(faceWidth.toFixed(4)),
     face_height: Number(faceHeight.toFixed(4)),
+    face_center_x: Number(faceCenter.x.toFixed(4)),
+    face_center_y: Number(faceCenter.y.toFixed(4)),
+    eye_line_y: Number(eyeMid.y.toFixed(4)),
+    face_top_margin: Number(faceTopMargin.toFixed(4)),
+    face_bottom_margin: Number(faceBottomMargin.toFixed(4)),
+    face_left_margin: Number(faceLeftMargin.toFixed(4)),
+    face_right_margin: Number(faceRightMargin.toFixed(4)),
+    alignment_score: Number(alignmentScore.toFixed(4)),
     chin_to_forehead: Number(distance(chinPoint, foreheadPoint).toFixed(4)),
     hand_count: handCount,
     hand_near_face: handNearFace,

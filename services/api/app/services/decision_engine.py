@@ -14,45 +14,45 @@ from typing import Any
 
 STAGE_CONFIG = {
     "face_detection": {
-        "weight": 0.10,
-        "threshold": 0.55,
+        "weight": 0.08,
+        "threshold": 0.45,
         "label": "Face Detection",
         "fail_message": "Face not reliably detected in frame",
     },
     "presentation_attack_detection": {
-        "weight": 0.20,
-        "threshold": 0.62,
+        "weight": 0.18,
+        "threshold": 0.50,
         "label": "Presentation Attack Detection",
         "fail_message": "Frame shows signs of spoofing (screen, photo, or mask)",
     },
     "recognition": {
         "weight": 0.25,
-        "threshold": 0.82,
+        "threshold": 0.60,
         "label": "Facial Recognition Match",
         "fail_message": "Face geometry does not match enrolled template",
     },
     "feature_verification": {
         "weight": 0.10,
-        "threshold": 0.72,
+        "threshold": 0.55,
         "label": "Granular Feature Verification",
         "fail_message": "Biometric feature comparison below confidence threshold",
     },
     "liveness": {
-        "weight": 0.20,
-        "threshold": 0.65,
+        "weight": 0.22,
+        "threshold": 0.45,
         "label": "Liveness Verification",
         "fail_message": "Challenge-response liveness verification incomplete or failed",
     },
     "deepfake_scan": {
-        "weight": 0.15,
-        "threshold": 0.55,
+        "weight": 0.17,
+        "threshold": 0.45,
         "label": "Deepfake Scan",
         "fail_message": "Frame shows indicators of synthetic generation",
     },
 }
 
-AGGREGATE_THRESHOLD = 0.88
-ANOMALY_REVIEW_THRESHOLD = 0.92  # Even if passed, flag for review if below this
+AGGREGATE_THRESHOLD = 0.62
+ANOMALY_REVIEW_THRESHOLD = 0.78  # Even if passed, flag for review if below this
 
 
 def build_stage_results(
@@ -132,12 +132,9 @@ def compute_decision(
 
     # Contextual adjustments
     adjusted_threshold = AGGREGATE_THRESHOLD
-    if ctx.get("consecutive_failures", 0) >= 2:
-        adjusted_threshold += 0.03
-        all_anomalies.append(f"Threshold raised due to {ctx['consecutive_failures']} recent failures")
-    if not ctx.get("device_known", True):
-        adjusted_threshold += 0.02
-        all_anomalies.append("Unknown device — higher confidence required")
+    if ctx.get("consecutive_failures", 0) >= 3:
+        adjusted_threshold += 0.015
+        all_anomalies.append(f"Threshold raised slightly due to {ctx['consecutive_failures']} recent failures")
 
     aggregate_passed = aggregate >= adjusted_threshold
 

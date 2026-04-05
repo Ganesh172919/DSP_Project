@@ -36,6 +36,8 @@ export function RegisterPage() {
   const canStart = useMemo(() => form.full_name && form.email && form.password, [form]);
   const currentStep = registrationSteps[activeStep];
   const allCaptured = activeStep >= registrationSteps.length - 1 && completedSteps.size >= registrationSteps.length;
+  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email);
+  const passwordValid = form.password.length >= 8;
 
   const faceMetrics = snapshot.client_metrics;
   const qualityBars = [
@@ -46,7 +48,9 @@ export function RegisterPage() {
   ];
 
   async function handleStartRegistration() {
-    if (!canStart) { setMessage("Please fill out your name, email, and password first."); return; }
+    if (!form.full_name.trim()) { setMessage("Please enter your full name."); return; }
+    if (!emailValid) { setMessage("Please enter a valid email address."); return; }
+    if (!passwordValid) { setMessage("Password must be at least 8 characters."); return; }
     setBusy(true);
     try {
       const response = await startRegistration({
@@ -61,7 +65,12 @@ export function RegisterPage() {
       setSessionId(response.session_id);
       setMessage("Enrollment session ready. Capture each step when the face guide is stable.");
     } catch (cause) {
-      setMessage(cause instanceof Error ? cause.message : "Unable to start registration");
+      const errMsg = cause instanceof Error ? cause.message : "Unable to start registration";
+      if (errMsg.includes("already registered") || errMsg.includes("409")) {
+        setMessage("This email is already registered. Go to the Authenticate page to sign in, or use a different email.");
+      } else {
+        setMessage(errMsg);
+      }
     } finally {
       setBusy(false);
     }
@@ -96,10 +105,16 @@ export function RegisterPage() {
         setMessage(`⚠️ Capture rejected: ${response.guidance.join(". ")}`);
       }
     } catch (cause) {
-      setMessage(cause instanceof Error ? cause.message : "Capture failed");
+      setMessage(cause instanceof Error ? cause.message : "Capture failed. Try again.");
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleRetryCapture() {
+    setMessage(`Retrying capture for ${currentStep?.label}. Position your face and try again.`);
+    setQualityScore(null);
+    setGuidance([]);
   }
 
   async function handleFinalizeRegistration() {
@@ -153,6 +168,11 @@ export function RegisterPage() {
           <button className="button" disabled={busy || !sessionId || allCaptured} onClick={handleCaptureStep}>
             📸 Capture {currentStep?.label}
           </button>
+          {sessionId && !allCaptured && qualityScore !== null && qualityScore < 40 && (
+            <button className="button" disabled={busy} onClick={handleRetryCapture}>
+              🔄 Retry This Step
+            </button>
+          )}
           <button className="button" disabled={busy || !sessionId || !allCaptured} onClick={handleFinalizeRegistration}>
             🔒 Finalize
           </button>
@@ -202,6 +222,9 @@ export function RegisterPage() {
             <div className="result-card__icon">🎉</div>
             <div className="result-card__score">{finalResult.security.toFixed(0)}/100</div>
             <p className="subtle">Security Score · {finalResult.steps} steps · Quality {finalResult.quality.toFixed(1)}</p>
+            <p className="subtle" style={{ marginTop: "0.8rem", fontWeight: 500 }}>
+              ✅ Registration complete! You can now go to the <strong>Authenticate</strong> page to verify your identity.
+            </p>
           </div>
         )}
 
