@@ -32,6 +32,14 @@ Consumer webcams make face authentication accessible, but they also make replay,
 
 The implemented system demonstrates architecture, data flow, heuristics, and service boundaries. Formal certification, large-scale model training, and demographic benchmark calibration remain future-work items.
 
+### AI Documentation Companion
+
+The repository now includes an AI-focused documentation set for the recognition, PAD, deepfake, liveness, temporal, and fusion stack:
+
+- `docs/ai-models.md`
+- `docs/ai-model-catalog.md`
+- `docs/ai-model-appendix.md`
+
 ## Chapter 2: Literature Review
 
 Relevant research converges on a layered defense model:

@@ -109,6 +109,9 @@ cd services/ml-risk
 
 ## Documentation
 
+- `docs/ai-models.md` - primary AI and authentication improvement guide
+- `docs/ai-model-catalog.md`
+- `docs/ai-model-appendix.md`
 - `docs/architecture.md`
 - `docs/report.md`
 - `docs/api.md`

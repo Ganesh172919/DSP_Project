@@ -42,6 +42,12 @@ flowchart LR
 - `ml-risk` exposes heuristic PAD/deepfake scoring
 - The API currently runs safe in-process fallbacks so local development still works if microservices are unavailable
 
+## AI Documentation
+
+- `docs/ai-models.md` explains the implemented recognition, PAD, deepfake, liveness, temporal, and decision pipeline
+- `docs/ai-model-catalog.md` maps recommended future model families, datasets, evaluation plans, and deployment concerns
+- `docs/ai-model-appendix.md` provides the detailed challenge reference, metric glossary, and review templates for the AI stack
+
 ## Registration Flow
 
 ```mermaid
