@@ -328,3 +328,29 @@ DSP Project/
 - Add Docker Compose for backend, frontend, and persistent volume setup.
 - Add model cards describing training data, limitations, and bias risks.
 - Add secure production secret handling instead of default development keys.
+
+## Latest Documentation Expansion - 2026-04-11
+
+The latest repository state adds an optional VLM hybrid authentication track alongside the original frame/video pipeline. The original documentation above remains valid for the traditional route; the new documents below expand it without replacing existing content.
+
+New and expanded documentation:
+
+- `docs/LATEST_CHANGES_2026_04_11.md`: concise summary of the latest VLM, frontend, backend, storage, and caveat updates.
+- `docs/VLM_HYBRID_AUTHENTICATION.md`: VLM registration, VLM authentication, model selection, fusion, and fallback behavior.
+- `docs/API_REFERENCE.md`: traditional, challenge, history, and VLM endpoint reference with request and response shapes.
+- `docs/FRONTEND_AND_USER_FLOWS.md`: browser routes, React pages, recording durations, and score display behavior.
+- `docs/DATABASE_AND_STORAGE.md`: SQLite tables, encrypted embeddings, VLM reference-frame storage, and backup notes.
+- `docs/SETUP_AND_OPERATIONS.md`: local setup, optional VLM setup, environment variables, smoke tests, and operational notes.
+- `docs/SECURITY_PRIVACY_LIMITATIONS.md`: security controls, privacy-sensitive data, limitations, and hardening tasks.
+- `docs/EVALUATION_AND_REPORTING.md`: safe reporting guidance and benchmark workflow.
+
+Latest code-aware additions now documented:
+
+- `VLMRegister` and `VLMLogin` frontend pages.
+- `/api/v1/vlm/register`, `/api/v1/vlm/authenticate`, and `/api/v1/vlm/status`.
+- `VLMAuthPipeline`, `VLMReasoner`, and VLM model auto-selection.
+- `vlm_registrations` metadata table and `data/vlm_ref_frames/{user_id}` storage.
+- Optional VLM dependencies in `backend/vlm_requirements.txt`.
+- Conservative VLM behavior: traditional pipeline runs first, VLM only reasons after a traditional grant, and VLM failure falls back to the traditional path.
+
+Current working-tree note: the VLM registration backend route currently expects repeated `face_data` image files, while `VLMRegister.jsx` sends a `video` upload. The docs now call this out explicitly so the integration contract can be aligned before a VLM browser demo.

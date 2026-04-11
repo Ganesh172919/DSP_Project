@@ -117,15 +117,22 @@ Respond ONLY in JSON:
 
 def detect_available_hardware():
     """Detect GPU/CPU capabilities for model selection."""
-    import psutil
-
     info = {
         "cuda_available": False,
         "gpu_name": None,
         "vram_gb": 0.0,
-        "ram_gb": round(psutil.virtual_memory().total / (1024 ** 3), 1),
-        "ram_available_gb": round(psutil.virtual_memory().available / (1024 ** 3), 1),
+        "ram_gb": 8.0,
+        "ram_available_gb": 4.0,
     }
+
+    try:
+        import psutil
+        info["ram_gb"] = round(psutil.virtual_memory().total / (1024 ** 3), 1)
+        info["ram_available_gb"] = round(psutil.virtual_memory().available / (1024 ** 3), 1)
+    except ImportError:
+        logger.warning("psutil not installed — assuming 8GB RAM")
+    except Exception:
+        pass
 
     try:
         import torch
@@ -135,6 +142,8 @@ def detect_available_hardware():
             info["vram_gb"] = round(
                 torch.cuda.get_device_properties(0).total_mem / (1024 ** 3), 1
             )
+    except ImportError:
+        logger.warning("torch not installed — assuming CPU only")
     except Exception:
         pass
 

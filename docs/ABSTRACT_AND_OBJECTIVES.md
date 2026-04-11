@@ -59,3 +59,19 @@ The system is considered successful when it can:
 - Deny access when face detection, liveness, deepfake, instruction, or similarity thresholds fail.
 - Return interpretable scores and denial reasons.
 - Preserve encrypted biometric data and audit history.
+
+## Latest Objective Expansion: VLM Hybrid Authentication
+
+The latest implementation expands the project objective from numeric biometric authentication to hybrid biometric authentication with optional semantic visual reasoning.
+
+Additional objectives:
+
+- Support video-based VLM registration through a dedicated frontend page.
+- Store selected registration reference frames for later VLM comparison.
+- Support VLM-enhanced login through a dedicated frontend page.
+- Compare registration and authentication frames using a Vision Language Model when resources permit.
+- Fuse traditional pipeline confidence with VLM overall confidence.
+- Return VLM reasoning to improve explainability for demonstrations and review.
+- Preserve the original traditional authentication path as a fallback when VLM dependencies or hardware are unavailable.
+
+The revised scope now includes both the original traditional pipeline and the optional VLM hybrid pipeline.

@@ -228,3 +228,40 @@ python -m training.evaluate --data_root data/test --weights_dir weights --model 
 - Runtime deepfake detection uses EfficientNet-B0; the training script can produce EfficientNet-B4 artifacts that require integration before runtime use.
 - The current frontend login flow uses `/authenticate/video`, not the challenge endpoints.
 - No committed benchmark table is available, so results should be produced with local evaluation data before reporting numeric accuracy.
+
+## VLM Hybrid Walkthrough Addendum
+
+The latest version adds two VLM pages and three VLM backend endpoints.
+
+### VLM Registration Walkthrough
+
+1. The user opens `/vlm-register`.
+2. The user enters a username and email.
+3. The browser records a 5-second webcam video.
+4. The frontend sends the video to `POST /api/v1/vlm/register`.
+5. The backend decodes the video into frames.
+6. `VLMAuthPipeline.register_face_from_video()` samples frames for the existing registration pipeline.
+7. The existing pipeline creates the encrypted ArcFace template.
+8. The VLM pipeline selects the best reference frames by face quality.
+9. The backend stores the user in `users`, stores metadata in `vlm_registrations`, and writes reference JPEGs under `backend/data/vlm_ref_frames/{user_id}/`.
+10. The frontend displays registration status, face quality, liveness score, and reference-frame count.
+
+### VLM Login Walkthrough
+
+1. The user opens `/vlm-login`.
+2. The user enters a registered username.
+3. The browser records a 5-second webcam video.
+4. The frontend sends the video to `POST /api/v1/vlm/authenticate`.
+5. The backend loads the user, decrypts the embedding, and loads VLM reference frames if present.
+6. The traditional `AuthPipeline.authenticate_video()` runs first.
+7. If the traditional result is `DENY`, the endpoint returns denial and skips VLM inference.
+8. If the traditional result is `GRANT`, authentication frames are extracted for VLM comparison.
+9. `VLMReasoner` asks Qwen or moondream for structured JSON judgment.
+10. `VLMAuthPipeline` fuses traditional and VLM scores.
+11. The response includes final decision, traditional scores, VLM scores, VLM reasoning, model used, override status, and JWT or denial reason.
+
+More detail is documented in `docs/VLM_HYBRID_AUTHENTICATION.md`.
+
+### Current Route Contract Note
+
+The VLM walkthrough above describes the video-based VLM registration design that exists in `VLMAuthPipeline`. The current working-tree `vlm_routes.py` registration endpoint accepts repeated `face_data` images instead. The current `VLMRegister.jsx` page still submits `video`, so that frontend/backend contract should be aligned before a browser-based VLM registration demo.

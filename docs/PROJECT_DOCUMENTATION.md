@@ -289,3 +289,45 @@ Metrics supported by the evaluation script include AUC-ROC, FAR, FRR, EER, preci
 ## 12. Conclusion
 
 The project demonstrates a practical layered approach to face authentication. It combines identity verification with liveness and deepfake checks, stores biometric templates securely, and provides clear audit information for every authentication attempt.
+
+## 13. Latest VLM Hybrid Documentation
+
+The latest repository state adds an optional VLM hybrid authentication module.
+
+### Added Technology Stack Items
+
+| Area | Technologies |
+| --- | --- |
+| VLM reasoning | Transformers, Qwen2.5-VL-3B-Instruct, moondream2 |
+| VLM hardware detection | PyTorch CUDA checks, psutil RAM checks |
+| VLM storage | SQLite metadata plus JPEG reference frames on disk |
+| VLM frontend | `VLMRegister.jsx`, `VLMLogin.jsx` |
+
+### Added Endpoints
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/v1/vlm/register` | Register with 5-second video and store VLM reference frames. |
+| `POST` | `/api/v1/vlm/authenticate` | Authenticate with traditional pipeline plus optional VLM reasoning. |
+| `GET` | `/api/v1/vlm/status` | Report VLM model and hardware status. |
+
+### Added Database Table
+
+`vlm_registrations` stores the user ID, reference-frame folder path, frame count, average quality, and creation time.
+
+### Added User Flow
+
+The VLM flow records 5-second videos for both registration and login. VLM authentication runs the traditional video pipeline first. If the traditional decision is `GRANT`, the VLM compares stored registration reference frames with current authentication frames and returns structured reasoning.
+
+### Added Documentation Files
+
+Read these for full details:
+
+- `docs/LATEST_CHANGES_2026_04_11.md`
+- `docs/VLM_HYBRID_AUTHENTICATION.md`
+- `docs/API_REFERENCE.md`
+- `docs/FRONTEND_AND_USER_FLOWS.md`
+- `docs/DATABASE_AND_STORAGE.md`
+- `docs/SETUP_AND_OPERATIONS.md`
+- `docs/SECURITY_PRIVACY_LIMITATIONS.md`
+- `docs/EVALUATION_AND_REPORTING.md`

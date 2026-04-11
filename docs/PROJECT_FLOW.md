@@ -115,3 +115,64 @@ Any failed gate produces a denial reason and threat flag where applicable.
 - Identity matching is separated from liveness and deepfake checks.
 - Decisions are explainable through individual scores and flags.
 - Audit logs preserve evidence for later review.
+
+## Latest VLM Flow
+
+The current repository also includes a VLM-enhanced flow.
+
+### VLM Registration Flow
+
+```text
+Enter username and email
+  -> Record 5-second browser video
+  -> POST /api/v1/vlm/register
+  -> Decode video frames
+  -> Sample frames for normal registration
+  -> Run YuNet, liveness, ArcFace, and encrypted template storage
+  -> Select best VLM reference frames
+  -> Store reference-frame metadata in vlm_registrations
+  -> Store JPEG reference frames on disk
+  -> Return user_id, scores, frame count, and status
+```
+
+### VLM Authentication Flow
+
+```text
+Enter username
+  -> Record 5-second browser video
+  -> POST /api/v1/vlm/authenticate
+  -> Run existing traditional video authentication
+  -> If traditional DENY, skip VLM and return DENY
+  -> If traditional GRANT, load registration reference frames
+  -> Extract authentication frames
+  -> Ask VLM for identity, liveness, authenticity, reasoning, and red flags
+  -> Fuse traditional confidence and VLM overall score
+  -> Apply VLM veto when high-confidence concerns exist
+  -> Return final decision, scores, reasoning, and JWT or denial reason
+```
+
+### VLM Decision Addition
+
+```text
+Traditional pipeline grants?
+  |
+  | no
+  v
+Return traditional DENY
+
+Traditional pipeline grants?
+  |
+  | yes
+  v
+Run VLM comparison if references and model are available
+  |
+  v
+Fuse scores and check high-confidence VLM veto
+  |
+  v
+Return final GRANT or DENY
+```
+
+### Current Route Contract Note
+
+The current working-tree backend VLM registration route accepts repeated `face_data` images, while the VLM registration frontend sends a video. The flow diagrams above describe the intended video-based VLM path and the existing `VLMAuthPipeline` capability; use `docs/LATEST_CHANGES_2026_04_11.md` and `docs/API_REFERENCE.md` for the current route-contract warning.

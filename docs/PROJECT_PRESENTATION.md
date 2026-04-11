@@ -75,3 +75,17 @@ This project combines:
 ## Closing Statement
 
 The project demonstrates a practical and explainable approach to secure facial authentication by combining identity matching with liveness verification, deepfake analysis, encrypted storage, and auditable decisions.
+
+## Latest Presentation Add-On: VLM Hybrid Reasoning
+
+Add this point if presenting the latest version:
+
+The project now includes an optional VLM-enhanced authentication path. After the traditional pipeline grants access, a Vision Language Model compares registration reference frames with the current authentication frames. It checks whether the same person appears present, whether the authentication attempt looks live, and whether there are signs of spoofing or manipulation. It returns both scores and a natural-language explanation.
+
+Good slide talking points:
+
+- VLM registration stores selected reference frames in addition to the encrypted ArcFace template.
+- VLM login runs the traditional pipeline first and invokes VLM only after a traditional grant.
+- Final confidence combines traditional and VLM scores.
+- High-confidence VLM concerns can override a traditional grant.
+- If VLM is unavailable, the system falls back to the traditional pipeline.

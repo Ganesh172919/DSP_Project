@@ -132,3 +132,34 @@ Production hardening still requires secure secret handling, key rotation, HTTPS,
 - SQLite is enough for a local academic prototype.
 - ONNX Runtime allows ArcFace inference without the heavier InsightFace runtime dependency.
 - Layered decisions make the system more resistant to single-point model failure.
+
+## Latest Architecture Expansion: VLM Layer
+
+The newest architecture adds a VLM hybrid layer as an additive branch:
+
+```text
+React VLM pages
+  -> /api/v1/vlm routes
+  -> VLMAuthPipeline
+       |-- existing AuthPipeline
+       |-- VLMReasoner
+       |-- VLM reference-frame loader
+       `-- fusion and veto logic
+  -> users + auth_logs + vlm_registrations
+  -> data/vlm_ref_frames/{user_id}
+```
+
+The VLM layer does not alter the original `AuthPipeline` decision sequence. It runs after the traditional video path grants access. If the traditional path denies access, VLM inference is skipped to save compute and preserve the original denial reason.
+
+Additional files introduced by this architecture:
+
+- `backend/app/vlm_routes.py`
+- `backend/app/vlm_pipeline.py`
+- `backend/app/vlm_config.py`
+- `backend/app/models/vlm_reasoner.py`
+- `backend/app/db/vlm_models.py`
+- `backend/app/db/vlm_crud.py`
+- `frontend/src/pages/VLMRegister.jsx`
+- `frontend/src/pages/VLMLogin.jsx`
+
+Additional documentation is available in `docs/VLM_HYBRID_AUTHENTICATION.md`.

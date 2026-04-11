@@ -125,3 +125,28 @@ Browser camera
 ## Slide 15: Conclusion
 
 The system demonstrates secure facial authentication through layered AI verification, encrypted biometric storage, and explainable decisions.
+
+## Optional Latest Slides: VLM Hybrid Extension
+
+### Slide 16: VLM Hybrid Authentication
+
+- Adds a Vision Language Model reasoning layer.
+- VLM registration records a 5-second video.
+- Selected registration frames are stored as references.
+- VLM login compares registration frames with authentication frames.
+- The original traditional pipeline still runs first.
+
+### Slide 17: VLM Decision Fusion
+
+- Traditional pipeline checks face match, liveness, and deepfake risk.
+- If traditional pipeline denies, VLM is skipped.
+- If traditional pipeline grants, VLM checks same person, liveness, and authenticity.
+- Final confidence combines traditional confidence and VLM overall score.
+- VLM can veto a grant when it finds high-confidence concerns.
+
+### Slide 18: Latest System Value
+
+- Numeric AI scores provide measurable security signals.
+- VLM reasoning adds human-readable explanation.
+- The hybrid approach improves presentation value and reviewer understanding.
+- The fallback design keeps the original pipeline usable when VLM resources are unavailable.

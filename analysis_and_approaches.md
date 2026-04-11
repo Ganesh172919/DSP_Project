@@ -200,3 +200,29 @@ These checks are useful for a baseline system, but should be validated against m
 - Runtime route behavior differs from camera-owned anti-injection assumptions.
 - Fine-tuned model artifacts are optional and may not exist in a clean checkout.
 - The committed SQLite database and keys should be treated as development artifacts, not production secrets.
+
+## Latest Implementation Update: VLM Approach Adopted
+
+The repository has now implemented the VLM direction as an additive hybrid track. This corresponds most closely to the previously recommended dual-video VLM reasoning approach, with one conservative implementation detail: VLM is invoked only after the existing traditional video pipeline returns `GRANT`.
+
+Implemented VLM pieces:
+
+- `backend/app/vlm_routes.py`: VLM API endpoints.
+- `backend/app/vlm_pipeline.py`: wrapper around the existing `AuthPipeline`.
+- `backend/app/models/vlm_reasoner.py`: Qwen/moondream VLM loading and JSON parsing.
+- `backend/app/vlm_config.py`: model selection, thresholds, prompts, and fusion weights.
+- `backend/app/db/vlm_models.py`: `vlm_registrations` table.
+- `backend/app/db/vlm_crud.py`: disk-backed reference-frame storage.
+- `frontend/src/pages/VLMRegister.jsx`: 5-second VLM registration video flow.
+- `frontend/src/pages/VLMLogin.jsx`: 5-second VLM login and reasoning display.
+
+Design status:
+
+- The original traditional route remains the primary stable path.
+- The VLM path adds explainability and semantic comparison.
+- VLM failure is designed to fall back to the traditional decision.
+- VLM reference frames introduce additional biometric storage that should be encrypted before production.
+- End-to-end VLM registration should be tested before demonstration because the route and storage helper must agree on the reference-frame return value.
+- The current working-tree route now expects repeated `face_data` images for VLM registration, while `VLMRegister.jsx` still submits a `video` field; this integration contract should be aligned.
+
+New documentation files under `docs/` now cover API behavior, setup, storage, frontend flows, security limitations, and evaluation guidance.

@@ -9,10 +9,12 @@ const BrainIcon = () => (
 );
 
 /**
- * VLMLogin — VLM-enhanced authentication page.
+ * VLMLogin — Same video-based auth as Login.jsx but calls /api/v1/vlm/authenticate.
  *
- * 3-step flow: username → record 5s video → results with VLM reasoning.
- * Shows full AI analysis including VLM natural language explanation.
+ * After the traditional pipeline GRANTs, VLM Judge reviews the frames
+ * and returns natural language reasoning.
+ *
+ * 3-step flow: username → record 5s video → results + VLM reasoning
  */
 export default function VLMLogin() {
   const [step, setStep] = useState(1);
@@ -22,18 +24,19 @@ export default function VLMLogin() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Camera
+  // Camera refs
   const videoRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const streamRef = useRef(null);
+
   const [cameraReady, setCameraReady] = useState(false);
   const [recording, setRecording] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [recordTime, setRecordTime] = useState(5);
-  const RECORD_DURATION = 5;
+  const RECORD_DURATION = 5; // 5s for VLM (more frames = better reasoning)
 
-  // Step 1 → 2
+  // ── Step 1 → Step 2: Start camera ──────────────────────────────────────
   const handleNext = useCallback(async () => {
     if (!username.trim()) { setError('Please enter your username'); return; }
     setError('');
@@ -47,12 +50,12 @@ export default function VLMLogin() {
       if (videoRef.current) videoRef.current.srcObject = stream;
       setCameraReady(true);
     } catch {
-      setError('Camera access denied.');
+      setError('Camera access denied. Please allow camera permissions.');
       setStep(1);
     }
   }, [username]);
 
-  // Countdown
+  // ── Countdown ──────────────────────────────────────────────────────────
   const handleStartRecording = useCallback(() => setCountdown(3), []);
 
   useEffect(() => {
@@ -85,6 +88,7 @@ export default function VLMLogin() {
     setTimeout(() => { if (recorder.state === 'recording') recorder.stop(); }, RECORD_DURATION * 1000);
   }, []);
 
+  // Recording timer
   useEffect(() => {
     if (!recording) return;
     const timer = setInterval(() => {
@@ -93,7 +97,7 @@ export default function VLMLogin() {
     return () => clearInterval(timer);
   }, [recording]);
 
-  // Submit
+  // ── Step 3: Submit to VLM auth endpoint ────────────────────────────────
   const handleSubmit = useCallback(async () => {
     if (!videoBlob) { setError('No video recorded'); return; }
     setError('');
@@ -104,16 +108,16 @@ export default function VLMLogin() {
       formData.append('video', videoBlob, 'auth_video.webm');
       const resp = await client.post('/vlm/authenticate', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 300000, // 5 min — VLM can be slow on CPU
+        timeout: 300000, // 5 min — VLM inference can be slow first time (model download)
       });
       setResult(resp.data);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Authentication failed');
+      setError(err.response?.data?.detail || err.message || 'Authentication failed');
     }
     setLoading(false);
   }, [username, videoBlob]);
 
-  // Auto-submit
+  // Auto-submit when step 3 reached
   useEffect(() => {
     if (step === 3 && videoBlob && !result && !loading) handleSubmit();
   }, [step, videoBlob, result, loading, handleSubmit]);
@@ -183,7 +187,7 @@ export default function VLMLogin() {
           <div className="step-content fade-in">
             <div className="video-instructions">
               <p>Look directly at the camera and keep your face visible.</p>
-              <p className="video-hint">Recording 5 seconds for comprehensive VLM + traditional analysis.</p>
+              <p className="video-hint">Recording 5 seconds for VLM + traditional analysis.</p>
             </div>
             <div className="camera-container active">
               <video ref={videoRef} autoPlay playsInline muted className="camera-video" />
@@ -218,7 +222,7 @@ export default function VLMLogin() {
               <div className="processing-state">
                 <div className="processing-spinner" />
                 <h3>Running Hybrid Analysis...</h3>
-                <p>Traditional pipeline + VLM reasoning (may take 15-60 seconds)</p>
+                <p>Traditional pipeline + VLM reasoning (may take 30-120 seconds on first run while model downloads)</p>
                 <div className="processing-steps">
                   <div className="p-step active">🔍 Extracting video frames</div>
                   <div className="p-step">🧬 Face Detection & Alignment</div>
@@ -250,7 +254,7 @@ export default function VLMLogin() {
                     <span>🧠⚠️</span>
                     <div className="alert-content">
                       <div className="alert-title">VLM Override</div>
-                      <div className="alert-detail">Traditional pipeline granted access, but VLM analysis detected issues and overrode the decision.</div>
+                      <div className="alert-detail">Traditional pipeline granted access, but VLM detected issues and overrode the decision.</div>
                     </div>
                   </div>
                 )}
@@ -269,7 +273,7 @@ export default function VLMLogin() {
                 </div>
 
                 {/* VLM Scores */}
-                {result.vlm_invoked && result.scores?.vlm && (
+                {result.vlm_invoked && result.scores?.vlm && Object.keys(result.scores.vlm).length > 0 && (
                   <div className="vlm-section">
                     <h3 className="vlm-section-title">🧠 VLM Analysis</h3>
                     <div className="vlm-model-badge">
@@ -291,7 +295,7 @@ export default function VLMLogin() {
                     <div className="vlm-reasoning-box">
                       <div className="vlm-reasoning-text">
                         {result.vlm_reasoning.split('\n').map((line, i) => (
-                          <p key={i}>{line}</p>
+                          <p key={i}>{line || '\u00A0'}</p>
                         ))}
                       </div>
                     </div>
@@ -323,11 +327,13 @@ export default function VLMLogin() {
                 )}
 
                 <div className="result-meta">
-                  <span>Total Processing: {result.processing_time_ms?.toFixed(0)}ms</span>
+                  <span>Total: {result.processing_time_ms?.toFixed(0)}ms</span>
                   {result.vlm_invoked && <span> | VLM: {result.vlm_model_used}</span>}
                 </div>
 
-                <button className="btn btn-secondary" onClick={handleReset}>Try Again</button>
+                <button className="btn btn-secondary" onClick={handleReset} style={{ marginTop: '12px' }}>
+                  Try Again
+                </button>
               </div>
             )}
           </div>
@@ -337,7 +343,7 @@ export default function VLMLogin() {
   );
 }
 
-/* ScoreBar — reused from Login.jsx pattern */
+/* ScoreBar component */
 function ScoreBar({ label, value, threshold, inverted = false }) {
   if (value === undefined || value === null) return null;
   const pct = Math.min(Math.max(value, 0), 1) * 100;

@@ -362,3 +362,43 @@ Before I proceed with implementation, I need your input on these:
 ### 7. Fallback when VLM fails
 > On Colab free tier, the VLM might fail to load (out of memory, no GPU assigned).
 > **Should the system fall back to the traditional pipeline silently, or return an error asking to retry?**
+
+---
+
+## 2026-04-11 Implementation Status
+
+The VLM direction has now been implemented as an additive hybrid track.
+
+Implemented choices:
+
+- Registration video storage uses disk-backed JPEG reference frames plus SQLite metadata.
+- The VLM model selector supports Qwen2.5-VL-3B-Instruct and moondream2.
+- VLM registration is an additional endpoint and page, not a replacement for traditional registration.
+- VLM authentication is an additional endpoint and page, not a replacement for traditional login.
+- VLM reasoning text is returned in the API response and shown in the frontend.
+- VLM failure falls back to a neutral judgment so the traditional pipeline can remain usable.
+- Current route contract warning: the backend VLM registration route currently expects repeated `face_data` images, while the VLM registration frontend still sends a `video` field.
+
+Current implemented files:
+
+```text
+backend/app/models/vlm_reasoner.py
+backend/app/vlm_pipeline.py
+backend/app/vlm_config.py
+backend/app/vlm_routes.py
+backend/app/db/vlm_models.py
+backend/app/db/vlm_crud.py
+backend/vlm_requirements.txt
+backend/notebooks/colab_vlm_auth.ipynb
+frontend/src/pages/VLMRegister.jsx
+frontend/src/pages/VLMLogin.jsx
+```
+
+The chosen architecture is conservative: it runs the existing traditional authentication stack first, then invokes VLM only after a traditional grant. This reduces compute cost and avoids relying on VLM for basic denials.
+
+Additional implementation details are now documented in:
+
+- `docs/LATEST_CHANGES_2026_04_11.md`
+- `docs/VLM_HYBRID_AUTHENTICATION.md`
+- `docs/API_REFERENCE.md`
+- `docs/SETUP_AND_OPERATIONS.md`

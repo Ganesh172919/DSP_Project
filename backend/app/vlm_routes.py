@@ -4,9 +4,13 @@ vlm_routes.py — FastAPI router for VLM-enhanced authentication endpoints.
 This module is ADDITIVE — it does not modify existing routes.
 All VLM endpoints are mounted under /api/v1/vlm/.
 
+Flow:
+  - VLM Register: same 5-frame capture as normal register + saves reference frames to disk
+  - VLM Authenticate: same video auth as existing + VLM Judge layer after GRANT
+
 Endpoints:
-  POST /api/v1/vlm/register      — Video-based registration with VLM reference frames
-  POST /api/v1/vlm/authenticate   — VLM-enhanced video authentication
+  POST /api/v1/vlm/register       — Register with 5 face images + store VLM ref frames
+  POST /api/v1/vlm/authenticate   — Video auth + VLM reasoning after GRANT
   GET  /api/v1/vlm/status         — VLM model status
 """
 
@@ -17,8 +21,6 @@ import cv2
 import numpy as np
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from app.config import RATE_LIMIT
 from app.db.models import get_db
@@ -29,32 +31,37 @@ from app.db.vlm_crud import (
     has_vlm_reference_frames,
 )
 from app.crypto import encrypt_embedding, decrypt_embedding, create_jwt
-from app.vlm_pipeline import VLMAuthPipeline
 
 logger = logging.getLogger(__name__)
 
 # ─── Router ─────────────────────────────────────────────────────────────────
 vlm_router = APIRouter(prefix="/api/v1/vlm", tags=["VLM Authentication"])
 
-# Rate limiter (shares limiter with main app)
-limiter = Limiter(key_func=get_remote_address)
-
-# ─── VLM Pipeline (lazy init) ──────────────────────────────────────────────
-_vlm_pipeline: Optional[VLMAuthPipeline] = None
+# ─── Lazy pipeline references ──────────────────────────────────────────────
+_vlm_pipeline = None
+_base_pipeline = None
 
 
-def get_vlm_pipeline() -> VLMAuthPipeline:
-    """Get or initialize the VLM pipeline (lazy singleton)."""
+def _get_base_pipeline():
+    """Get the existing AuthPipeline (same one used by main.py)."""
+    global _base_pipeline
+    if _base_pipeline is None:
+        from app.pipeline import AuthPipeline
+        _base_pipeline = AuthPipeline()
+    return _base_pipeline
+
+
+def _get_vlm_reasoner():
+    """Get the VLM reasoner (lazy init — downloads model on first call)."""
     global _vlm_pipeline
     if _vlm_pipeline is None:
-        logger.info("Initializing VLM pipeline (lazy)...")
-        _vlm_pipeline = VLMAuthPipeline()
-        logger.info("VLM pipeline initialized")
+        from app.models.vlm_reasoner import VLMReasoner
+        _vlm_pipeline = VLMReasoner()
     return _vlm_pipeline
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# VLM REGISTRATION
+# VLM REGISTRATION — same 5-frame capture as normal register
 # ═══════════════════════════════════════════════════════════════════════════
 
 @vlm_router.post("/register")
@@ -62,22 +69,19 @@ async def vlm_register(
     request: Request,
     username: str = Form(...),
     email: str = Form(...),
-    video: UploadFile = File(...),
+    face_data: List[UploadFile] = File(...),
     db: Session = Depends(get_db),
 ):
     """
-    Register a user with video-based capture and VLM reference frames.
+    Register a user with face images + VLM reference frames.
+
+    Same interface as /api/v1/register (accepts multiple face images).
+    Additionally stores the face frames on disk for VLM comparison.
 
     Accepts:
       - username: unique username
       - email: unique email
-      - video: 5-second webcam video (WebM/MP4)
-
-    Pipeline:
-      1. Decode video → extract frames
-      2. Run existing registration (face detection, embedding extraction)
-      3. Select 3 best frames as VLM reference frames
-      4. Store encrypted embedding + encrypted reference frames
+      - face_data: list of face image files (5 recommended, same as normal register)
 
     Returns:
       {user_id, username, liveness_score, face_quality, vlm_ref_frames_stored, status}
@@ -97,19 +101,25 @@ async def vlm_register(
             detail=f"Email '{email}' already registered"
         )
 
-    # Read video bytes
-    video_bytes = await video.read()
-    if not video_bytes:
-        raise HTTPException(status_code=400, detail="Empty video file")
+    # Decode all uploaded images into frames
+    frames = []
+    for upload in face_data:
+        content = await upload.read()
+        img = cv2.imdecode(np.frombuffer(content, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if img is not None:
+            frames.append(img)
 
-    logger.info(f"VLM registration: received video ({len(video_bytes)} bytes) for user '{username}'")
+    if len(frames) < 1:
+        raise HTTPException(status_code=400, detail="No valid images uploaded")
+
+    logger.info(f"VLM Registration: received {len(frames)} frames for user '{username}'")
 
     try:
-        vlm_pipe = get_vlm_pipeline()
+        pipe = _get_base_pipeline()
 
-        # Run video-based registration
-        template, liveness_score, face_quality, ref_frames, ref_qualities = (
-            vlm_pipe.register_face_from_video(video_bytes)
+        # Run existing registration pipeline (same as normal register)
+        template, liveness_score, face_quality = pipe.register_face(
+            frames, skip_injection_check=True
         )
 
         # Encrypt embedding
@@ -124,17 +134,18 @@ async def vlm_register(
             face_quality=face_quality,
         )
 
-        # Store VLM reference frames (new table)
-        vlm_records = store_vlm_reference_frames(
+        # Also store the frames on disk for VLM reference
+        qualities = [face_quality] * len(frames)  # use avg quality for all
+        vlm_count = store_vlm_reference_frames(
             db=db,
             user_id=user.id,
-            frames=ref_frames,
-            qualities=ref_qualities,
+            frames=frames,
+            qualities=qualities,
         )
 
         logger.info(
             f"VLM registered user '{username}' (id={user.id}): "
-            f"{len(vlm_records)} ref frames stored"
+            f"{vlm_count} ref frames stored on disk"
         )
 
         return {
@@ -142,7 +153,7 @@ async def vlm_register(
             "username": username,
             "liveness_score": round(liveness_score, 4),
             "face_quality": round(face_quality, 4),
-            "vlm_ref_frames_stored": len(vlm_records),
+            "vlm_ref_frames_stored": vlm_count,
             "status": "registered",
         }
 
@@ -152,12 +163,12 @@ async def vlm_register(
         logger.error(f"VLM registration failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail="VLM registration failed — see server logs"
+            detail=f"VLM registration failed: {str(e)}"
         )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# VLM AUTHENTICATION
+# VLM AUTHENTICATION — video auth + VLM reasoning after GRANT
 # ═══════════════════════════════════════════════════════════════════════════
 
 @vlm_router.post("/authenticate")
@@ -170,25 +181,26 @@ async def vlm_authenticate(
     """
     VLM-enhanced video authentication.
 
+    Same video input as /api/v1/authenticate/video.
+    After traditional pipeline says GRANT, VLM Judge reviews the frames.
+
+    Pipeline:
+      1. Run traditional video authentication (all existing layers)
+      2. If traditional says DENY → return immediately (VLM skipped)
+      3. If traditional says GRANT → extract auth frames + load ref frames
+      4. Send both to VLM for semantic reasoning
+      5. Return combined result with VLM reasoning text
+
     Accepts:
       - username: registered username
       - video: 5-second webcam video (WebM/MP4)
 
-    Pipeline:
-      1. Run traditional video authentication (all existing layers)
-      2. If traditional says DENY → return immediately
-      3. If traditional says GRANT → VLM Judge reviews registration vs auth frames
-      4. Fuse scores: final = 0.6 × traditional + 0.4 × VLM
-      5. VLM can veto a GRANT with high confidence denial
-      6. Return combined result with VLM natural language reasoning
-
     Returns:
-      {
-        authenticated, confidence, vlm_reasoning, vlm_model_used,
-        scores: {traditional, vlm_identity, vlm_liveness, vlm_authenticity, vlm_overall},
-        threat_flags, processing_time_ms, jwt_token or denial_reason
-      }
+      {authenticated, confidence, vlm_reasoning, scores, processing_time_ms, ...}
     """
+    import time
+    t_start = time.perf_counter()
+
     # Look up user
     user = crud.get_user_by_username(db, username)
     if not user:
@@ -205,88 +217,178 @@ async def vlm_authenticate(
     if not video_bytes:
         raise HTTPException(status_code=400, detail="Empty video file")
 
-    # Get VLM reference frames (may be empty for users registered without VLM)
-    ref_frames = get_vlm_reference_frames(db, user.id)
+    logger.info(f"VLM auth for '{username}': video={len(video_bytes)} bytes")
 
-    has_vlm_refs = len(ref_frames) > 0
-    logger.info(
-        f"VLM auth for '{username}': "
-        f"video={len(video_bytes)} bytes, "
-        f"has_vlm_refs={has_vlm_refs} ({len(ref_frames)} frames)"
-    )
-
-    # Run VLM hybrid pipeline
-    vlm_pipe = get_vlm_pipeline()
-    result = vlm_pipe.authenticate_vlm(
+    # ── Step 1: Run traditional video pipeline ──────────────────────────
+    pipe = _get_base_pipeline()
+    trad_result = pipe.authenticate_video(
         stored_embedding=stored_embedding,
         video_bytes=video_bytes,
-        ref_frames=ref_frames,
     )
 
-    # Get client IP for audit logging
-    client_ip = request.client.host if request.client else "unknown"
+    trad_scores = {
+        "liveness": trad_result.scores.liveness_score,
+        "deepfake": trad_result.scores.deepfake_score,
+        "similarity": trad_result.scores.similarity_score,
+        "injection": trad_result.scores.injection_confidence,
+    }
 
-    # Log to audit table (using traditional result details)
-    trad = result.traditional_result
-    crud.log_auth_attempt(
-        db=db,
-        user_id=user.id,
-        ip_address=client_ip,
-        liveness_score=trad.scores.liveness_score if trad else None,
-        deepfake_score=trad.scores.deepfake_score if trad else None,
-        similarity_score=trad.scores.similarity_score if trad else None,
-        injection_confidence=trad.scores.injection_confidence if trad else None,
-        threat_flags=trad.threat_flags if trad else [],
-        decision=result.final_decision,
-        denial_reason=trad.denial_reason if trad and trad.decision == "DENY" else (
-            "vlm_override" if result.vlm_override else None
-        ),
+    logger.info(
+        f"Traditional pipeline: {trad_result.decision} "
+        f"(confidence={trad_result.confidence:.3f})"
+    )
+
+    # ── Step 2: If DENY, skip VLM ──────────────────────────────────────
+    if trad_result.decision == "DENY":
+        total_ms = (time.perf_counter() - t_start) * 1000
+
+        # Log to audit table
+        _log_auth(db, request, user, trad_result, "DENY", None)
+
+        return {
+            "authenticated": False,
+            "confidence": round(trad_result.confidence, 4),
+            "vlm_reasoning": (
+                f"Traditional pipeline denied authentication: "
+                f"{trad_result.denial_reason}. VLM analysis was skipped."
+            ),
+            "vlm_model_used": "none",
+            "vlm_invoked": False,
+            "vlm_override": False,
+            "has_vlm_refs": has_vlm_reference_frames(db, user.id),
+            "scores": {"traditional": trad_scores, "vlm": {}},
+            "threat_flags": trad_result.threat_flags,
+            "processing_time_ms": round(total_ms, 1),
+            "traditional_decision": "DENY",
+            "traditional_confidence": round(trad_result.confidence, 4),
+            "denial_reason": trad_result.denial_reason,
+        }
+
+    # ── Step 3: GRANT — invoke VLM Judge ───────────────────────────────
+    # Load reference frames from disk
+    ref_frames = get_vlm_reference_frames(db, user.id)
+    has_refs = len(ref_frames) > 0
+
+    # Extract auth frames from the video
+    auth_frames = _extract_frames_from_video(video_bytes, count=3)
+
+    vlm_reasoning = ""
+    vlm_scores = {}
+    vlm_invoked = False
+    vlm_override = False
+    vlm_model = "none"
+    final_decision = "GRANT"
+    final_confidence = trad_result.confidence
+
+    if has_refs and auth_frames:
+        try:
+            vlm = _get_vlm_reasoner()
+            judgment = vlm.judge_authentication(ref_frames, auth_frames)
+            vlm_invoked = True
+            vlm_model = judgment.model_used
+
+            vlm_scores = {
+                "vlm_identity": judgment.same_person_confidence,
+                "vlm_liveness": judgment.liveness_confidence,
+                "vlm_authenticity": judgment.authenticity_confidence,
+                "vlm_overall": judgment.overall_score,
+            }
+
+            # Fusion: 0.6 × traditional + 0.4 × VLM
+            from app.vlm_config import (
+                FUSION_TRADITIONAL_WEIGHT, FUSION_VLM_WEIGHT,
+                VLM_VETO_CONFIDENCE,
+            )
+
+            fused = (
+                FUSION_TRADITIONAL_WEIGHT * trad_result.confidence +
+                FUSION_VLM_WEIGHT * judgment.overall_score
+            )
+            final_confidence = fused
+
+            # VLM veto check
+            vlm_denies = (
+                not judgment.same_person or
+                not judgment.is_live or
+                not judgment.is_authentic
+            )
+            veto_conf = 1.0 - judgment.overall_score
+
+            if vlm_denies and veto_conf >= VLM_VETO_CONFIDENCE:
+                final_decision = "DENY"
+                vlm_override = True
+                vlm_reasoning = (
+                    f"⚠️ VLM OVERRIDE: Traditional pipeline granted access, "
+                    f"but VLM analysis raised critical concerns "
+                    f"(deny confidence: {veto_conf:.1%}).\n\n"
+                    f"🧠 VLM Analysis: {judgment.reasoning}"
+                )
+                if judgment.red_flags:
+                    vlm_reasoning += f"\n\n🚩 Red Flags: {', '.join(judgment.red_flags)}"
+            else:
+                vlm_reasoning = (
+                    f"✅ Authentication verified by both traditional pipeline "
+                    f"({trad_result.confidence:.1%}) and VLM reasoning "
+                    f"({judgment.overall_score:.1%}).\n\n"
+                    f"🧠 VLM Analysis: {judgment.reasoning}"
+                )
+
+            logger.info(
+                f"VLM judgment: same={judgment.same_person}, "
+                f"live={judgment.is_live}, authentic={judgment.is_authentic}, "
+                f"overall={judgment.overall_score:.2f}, time={judgment.inference_time_ms:.0f}ms"
+            )
+
+        except Exception as e:
+            logger.error(f"VLM reasoning failed: {e}", exc_info=True)
+            vlm_reasoning = (
+                f"✅ Traditional pipeline granted access ({trad_result.confidence:.1%}). "
+                f"VLM analysis encountered an error: {str(e)[:200]}"
+            )
+    elif not has_refs:
+        vlm_reasoning = (
+            f"✅ Traditional pipeline granted access ({trad_result.confidence:.1%}). "
+            f"VLM analysis skipped: no reference frames found. "
+            f"Please re-register using the VLM Register page."
+        )
+    else:
+        vlm_reasoning = (
+            f"✅ Traditional pipeline granted access ({trad_result.confidence:.1%}). "
+            f"VLM analysis skipped: could not extract auth frames from video."
+        )
+
+    total_ms = (time.perf_counter() - t_start) * 1000
+
+    # Log to audit table
+    _log_auth(
+        db, request, user, trad_result, final_decision,
+        "vlm_override" if vlm_override else None
     )
 
     # Build response
-    trad_scores = {}
-    if trad:
-        trad_scores = {
-            "liveness": trad.scores.liveness_score,
-            "deepfake": trad.scores.deepfake_score,
-            "similarity": trad.scores.similarity_score,
-            "injection": trad.scores.injection_confidence,
-        }
-
-    vlm_scores = {}
-    if result.vlm_judgment:
-        j = result.vlm_judgment
-        vlm_scores = {
-            "vlm_identity": j.same_person_confidence,
-            "vlm_liveness": j.liveness_confidence,
-            "vlm_authenticity": j.authenticity_confidence,
-            "vlm_overall": j.overall_score,
-        }
-
     response = {
-        "authenticated": result.final_decision == "GRANT",
-        "confidence": round(result.final_confidence, 4),
-        "vlm_reasoning": result.vlm_reasoning,
-        "vlm_model_used": result.vlm_model_used,
-        "vlm_invoked": result.vlm_invoked,
-        "vlm_override": result.vlm_override,
-        "has_vlm_refs": has_vlm_refs,
+        "authenticated": final_decision == "GRANT",
+        "confidence": round(final_confidence, 4),
+        "vlm_reasoning": vlm_reasoning,
+        "vlm_model_used": vlm_model,
+        "vlm_invoked": vlm_invoked,
+        "vlm_override": vlm_override,
+        "has_vlm_refs": has_refs,
         "scores": {
             "traditional": trad_scores,
             "vlm": vlm_scores,
         },
-        "threat_flags": trad.threat_flags if trad else [],
-        "processing_time_ms": round(result.total_processing_time_ms, 1),
-        "traditional_decision": trad.decision if trad else None,
-        "traditional_confidence": round(trad.confidence, 4) if trad else None,
+        "threat_flags": trad_result.threat_flags,
+        "processing_time_ms": round(total_ms, 1),
+        "traditional_decision": trad_result.decision,
+        "traditional_confidence": round(trad_result.confidence, 4),
     }
 
-    if result.final_decision == "GRANT":
+    if final_decision == "GRANT":
         response["jwt_token"] = create_jwt(str(user.id), user.username)
     else:
         response["denial_reason"] = (
-            "vlm_override" if result.vlm_override
-            else (trad.denial_reason if trad else "unknown")
+            "vlm_override" if vlm_override else trad_result.denial_reason
         )
 
     return response
@@ -304,10 +406,9 @@ async def vlm_status():
     Returns model info, hardware details, and readiness state.
     """
     try:
-        vlm_pipe = get_vlm_pipeline()
-        status = vlm_pipe.get_vlm_status()
+        vlm = _get_vlm_reasoner()
+        status = vlm.get_status()
 
-        # Also get hardware info
         from app.vlm_config import detect_available_hardware
         hw = detect_available_hardware()
 
@@ -325,9 +426,68 @@ async def vlm_status():
         return {
             "vlm": {"loaded": False, "error": str(e)},
             "hardware": {},
-            "endpoints": {
-                "register": "/api/v1/vlm/register",
-                "authenticate": "/api/v1/vlm/authenticate",
-                "status": "/api/v1/vlm/status",
-            },
         }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# HELPERS
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _extract_frames_from_video(video_bytes: bytes, count: int = 3) -> list:
+    """Extract evenly spaced frames from video bytes."""
+    import tempfile, os, uuid
+
+    tmp_path = os.path.join("data", f"tmp_vlm_{uuid.uuid4().hex}.webm")
+    try:
+        os.makedirs("data", exist_ok=True)
+        with open(tmp_path, "wb") as f:
+            f.write(video_bytes)
+
+        cap = cv2.VideoCapture(tmp_path)
+        if not cap.isOpened():
+            logger.warning("Cannot open video for VLM frame extraction")
+            return []
+
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total < 1:
+            cap.release()
+            return []
+
+        indices = np.linspace(0, total - 1, min(count, total), dtype=int)
+        frames = []
+
+        for idx in indices:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+            ret, frame = cap.read()
+            if ret:
+                frames.append(frame)
+
+        cap.release()
+        return frames
+
+    except Exception as e:
+        logger.error(f"Frame extraction failed: {e}")
+        return []
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+def _log_auth(db, request, user, trad_result, decision, denial_override):
+    """Log authentication attempt to audit table."""
+    client_ip = request.client.host if request.client else "unknown"
+    try:
+        crud.log_auth_attempt(
+            db=db,
+            user_id=user.id,
+            ip_address=client_ip,
+            liveness_score=trad_result.scores.liveness_score,
+            deepfake_score=trad_result.scores.deepfake_score,
+            similarity_score=trad_result.scores.similarity_score,
+            injection_confidence=trad_result.scores.injection_confidence,
+            threat_flags=trad_result.threat_flags,
+            decision=decision,
+            denial_reason=denial_override or trad_result.denial_reason,
+        )
+    except Exception as e:
+        logger.error(f"Failed to log auth attempt: {e}")

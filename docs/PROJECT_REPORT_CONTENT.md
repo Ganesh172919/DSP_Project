@@ -162,3 +162,11 @@ No dataset-backed benchmark values are committed. The repository includes an eva
 ## Conclusion
 
 The project successfully demonstrates an AI-based facial authentication system that combines face matching with liveness and deepfake protection. Its layered architecture provides stronger security and clearer explanations than basic face recognition alone, while leaving a practical path for future model calibration and production hardening.
+
+## Addendum For Latest VLM Version
+
+The latest version extends the project with a VLM hybrid authentication path. In addition to the original frame-based registration and video login flow, the system now includes VLM registration and VLM login pages. VLM registration records a short video, builds the normal encrypted ArcFace template, and stores selected reference frames for later comparison. VLM authentication first runs the existing traditional pipeline and then, only after a traditional grant, uses a Vision Language Model to compare registration frames with current authentication frames.
+
+This addition improves explainability because the VLM returns natural-language reasoning along with identity, liveness, authenticity, and overall scores. The final VLM confidence is fused with the traditional confidence using a weighted rule. The VLM can also veto a traditional grant when it reports high-confidence concerns.
+
+For a report section, this can be described as an optional semantic reasoning layer added on top of the existing numeric biometric pipeline. The original system remains available and serves as the fallback path when VLM dependencies or hardware are unavailable.

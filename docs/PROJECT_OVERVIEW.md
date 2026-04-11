@@ -63,3 +63,21 @@ The project is not only a face recognition demo. Its main innovation is layered 
 ## Outcome
 
 The implemented system can register users, authenticate them through video, deny suspicious attempts based on score thresholds, store encrypted biometric templates, and provide auditable authentication history.
+
+## Latest Expansion: VLM Hybrid Track
+
+The latest version adds an optional Vision Language Model authentication track while keeping the original system intact.
+
+New capabilities:
+
+- VLM video registration page at `/vlm-register`.
+- VLM video login page at `/vlm-login`.
+- Backend VLM endpoints under `/api/v1/vlm`.
+- VLM reference-frame selection during video registration.
+- Metadata storage in the new `vlm_registrations` table.
+- Reference-frame storage under `backend/data/vlm_ref_frames/{user_id}/`.
+- VLM reasoning using Qwen2.5-VL-3B-Instruct or moondream2 when dependencies and hardware permit.
+- Fused confidence from traditional model scores and VLM overall judgment.
+- VLM veto support when the traditional pipeline grants but the VLM sees high-confidence identity, liveness, or authenticity concerns.
+
+The current project should therefore be described as a layered biometric authentication system with two paths: a traditional numeric AI pipeline and an optional VLM-enhanced pipeline for semantic visual reasoning.

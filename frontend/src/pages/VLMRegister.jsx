@@ -1,132 +1,55 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
+import CameraCapture from '../components/CameraCapture';
 import client from '../api/client';
 
 /**
- * VLMRegister — Video-based registration page for VLM hybrid auth.
+ * VLMRegister — Registration page for VLM hybrid auth.
  *
- * Records a 5-second video and sends it to the VLM registration endpoint.
- * The backend extracts frames for both traditional embedding + VLM reference storage.
+ * Uses the SAME 5-frame capture as normal Register.
+ * Sends frames to /api/v1/vlm/register which stores them on disk
+ * for VLM comparison during authentication.
  */
 export default function VLMRegister() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [step, setStep] = useState(1); // 1: form, 2: record, 3: result
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
-  const [error, setError] = useState('');
 
-  // Camera
-  const videoRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const chunksRef = useRef([]);
-  const streamRef = useRef(null);
-  const [cameraReady, setCameraReady] = useState(false);
-  const [recording, setRecording] = useState(false);
-  const [countdown, setCountdown] = useState(0);
-  const [recordTime, setRecordTime] = useState(5);
-  const RECORD_DURATION = 5;
-
-  // Start camera
-  const handleNext = useCallback(async () => {
-    if (!name.trim() || !email.trim()) {
-      setError('Please fill in both name and email.');
-      return;
-    }
-    setError('');
-    setStep(2);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480, facingMode: 'user' },
-        audio: false,
-      });
-      streamRef.current = stream;
-      if (videoRef.current) videoRef.current.srcObject = stream;
-      setCameraReady(true);
-    } catch {
-      setError('Camera access denied. Please allow camera permissions.');
-      setStep(1);
-    }
-  }, [name, email]);
-
-  // Countdown
-  const handleStartRecording = useCallback(() => setCountdown(3), []);
-
-  useEffect(() => {
-    if (countdown <= 0) return;
-    const timer = setTimeout(() => {
-      if (countdown === 1) {
-        beginRecording();
-        setCountdown(0);
-      } else {
-        setCountdown(countdown - 1);
+  const handleCapture = useCallback(
+    async (blobs) => {
+      if (!name.trim() || !email.trim()) {
+        setResult({ type: 'error', data: { message: 'Please fill in name and email.' } });
+        return;
       }
-    }, 1000);
-    return () => clearTimeout(timer);
-  }, [countdown]);
 
-  const beginRecording = useCallback(() => {
-    if (!streamRef.current) return;
-    chunksRef.current = [];
-    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-      ? 'video/webm;codecs=vp9' : 'video/webm';
-    const recorder = new MediaRecorder(streamRef.current, { mimeType });
-    recorder.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-    recorder.onstop = () => {
-      const blob = new Blob(chunksRef.current, { type: mimeType });
-      setRecording(false);
-      if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
-      submitVideo(blob);
-    };
-    mediaRecorderRef.current = recorder;
-    recorder.start(100);
-    setRecording(true);
-    setRecordTime(RECORD_DURATION);
-    setTimeout(() => { if (recorder.state === 'recording') recorder.stop(); }, RECORD_DURATION * 1000);
-  }, []);
+      setLoading(true);
+      setResult(null);
 
-  // Recording timer
-  useEffect(() => {
-    if (!recording) return;
-    const timer = setInterval(() => {
-      setRecordTime(prev => { if (prev <= 0.1) { clearInterval(timer); return 0; } return prev - 0.1; });
-    }, 100);
-    return () => clearInterval(timer);
-  }, [recording]);
+      try {
+        const formData = new FormData();
+        formData.append('username', name.trim());
+        formData.append('email', email.trim());
 
-  // Submit video
-  const submitVideo = useCallback(async (blob) => {
-    setStep(3);
-    setLoading(true);
-    setError('');
-    try {
-      const formData = new FormData();
-      formData.append('username', name.trim());
-      formData.append('email', email.trim());
-      formData.append('video', blob, 'reg_video.webm');
-      const resp = await client.post('/vlm/register', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 180000,
-      });
-      setResult({ type: 'success', data: resp.data });
-    } catch (err) {
-      const msg = err.response?.data?.detail || err.message || 'Registration failed';
-      setResult({ type: 'error', data: { message: msg } });
-    }
-    setLoading(false);
-  }, [name, email]);
+        /* Send all captured frames as separate files — same as normal register */
+        blobs.forEach((blob, i) => {
+          formData.append('face_data', blob, `face_${i}.jpg`);
+        });
 
-  // Cleanup
-  useEffect(() => () => {
-    if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
-  }, []);
+        const res = await client.post('/vlm/register', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          timeout: 120000,
+        });
 
-  const handleReset = () => {
-    setStep(1); setName(''); setEmail(''); setResult(null); setError('');
-    setLoading(false); setCameraReady(false); setRecording(false);
-    if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
-  };
-
-  const progress = ((RECORD_DURATION - recordTime) / RECORD_DURATION) * 100;
+        setResult({ type: 'success', data: res.data });
+      } catch (err) {
+        const msg = err.response?.data?.detail || err.message || 'Registration failed';
+        setResult({ type: 'error', data: { message: msg } });
+      } finally {
+        setLoading(false);
+      }
+    },
+    [name, email]
+  );
 
   return (
     <div className="page">
@@ -138,149 +61,100 @@ export default function VLMRegister() {
             <span>VLM Enhanced</span>
           </div>
           <h1>VLM Registration</h1>
-          <p>Record a 5-second video for AI-powered face registration</p>
+          <p>Register your face for AI-powered hybrid authentication</p>
         </div>
 
-        {/* Stepper */}
-        <div className="stepper">
-          {['Details', 'Record Video', 'Register'].map((label, i) => (
-            <div key={i} className={`step-dot ${step > i + 1 ? 'completed' : ''} ${step === i + 1 ? 'active' : ''}`}>
-              <div className="dot">{step > i + 1 ? '✓' : i + 1}</div>
-              <span className="step-label">{label}</span>
-            </div>
-          ))}
+        {/* Info Box */}
+        <div className="vlm-info-box">
+          <h4>🧠 What's different?</h4>
+          <p>This uses the same 5-frame capture as normal registration, but also stores your face reference frames for VLM (Vision Language Model) comparison during login.</p>
+          <ul>
+            <li><strong>Traditional:</strong> ArcFace embedding + liveness check</li>
+            <li><strong>VLM Extra:</strong> Reference frames saved for semantic AI reasoning</li>
+          </ul>
         </div>
 
-        {error && (
-          <div className="alert alert-error"><span>⚠️</span> {error}</div>
-        )}
+        {/* Form Fields */}
+        <div className="form-group">
+          <label htmlFor="vlm-reg-name">Full Name</label>
+          <input
+            id="vlm-reg-name"
+            className="form-input"
+            type="text"
+            placeholder="John Doe"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={loading}
+          />
+        </div>
 
-        {/* Step 1: Form */}
-        {step === 1 && (
-          <div className="step-content fade-in">
-            <div className="form-group">
-              <label htmlFor="vlm-reg-name">Full Name</label>
-              <input id="vlm-reg-name" className="form-input" type="text"
-                placeholder="John Doe" value={name}
-                onChange={e => setName(e.target.value)} disabled={loading} />
+        <div className="form-group">
+          <label htmlFor="vlm-reg-email">Email Address</label>
+          <input
+            id="vlm-reg-email"
+            className="form-input"
+            type="email"
+            placeholder="john@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={loading}
+          />
+        </div>
+
+        {/* Camera — same 5-frame multi capture as normal register */}
+        <CameraCapture
+          mode="multi"
+          onCapture={handleCapture}
+          disabled={loading || !name.trim() || !email.trim()}
+        />
+
+        {/* Loading State */}
+        {loading && (
+          <div className="alert alert-info">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 6v6l4 2" />
+            </svg>
+            <div className="alert-content">
+              <div className="alert-title">Processing VLM registration...</div>
+              <div className="alert-detail">Running liveness check, embedding extraction, and saving VLM reference frames</div>
             </div>
-            <div className="form-group">
-              <label htmlFor="vlm-reg-email">Email Address</label>
-              <input id="vlm-reg-email" className="form-input" type="email"
-                placeholder="john@example.com" value={email}
-                onChange={e => setEmail(e.target.value)} disabled={loading} />
-            </div>
-            <div className="vlm-info-box">
-              <h4>🧠 VLM Registration</h4>
-              <p>This registers your face using both traditional AI models and a Vision Language Model.
-                A 5-second video will be recorded to capture your face from slightly different angles.</p>
-              <ul>
-                <li>Traditional: ArcFace embedding + liveness check</li>
-                <li>VLM: 3 reference frames stored for semantic reasoning</li>
-              </ul>
-            </div>
-            <button className="btn btn-primary" onClick={handleNext}
-              disabled={!name.trim() || !email.trim()}>
-              Next → Start Camera
-            </button>
           </div>
         )}
 
-        {/* Step 2: Record */}
-        {step === 2 && (
-          <div className="step-content fade-in">
-            <div className="video-instructions">
-              <p>Look directly at the camera. Move your head slightly for the best registration.</p>
-              <p className="video-hint">The 5-second video captures your face for both traditional and VLM analysis.</p>
+        {/* Success */}
+        {result?.type === 'success' && (
+          <div className="alert alert-success">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+              <polyline points="22 4 12 14.01 9 11.01" />
+            </svg>
+            <div className="alert-content">
+              <div className="alert-title">VLM Registration Complete ✓</div>
+              <div className="alert-detail">
+                User ID: {result.data.user_id} —
+                Face quality: {(result.data.face_quality * 100).toFixed(1)}% —
+                VLM frames: {result.data.vlm_ref_frames_stored} stored
+              </div>
             </div>
-            <div className="camera-container active">
-              <video ref={videoRef} autoPlay playsInline muted className="camera-video" />
-              {countdown > 0 && (
-                <div className="countdown-overlay">
-                  <div className="countdown-number">{countdown}</div>
-                  <p className="countdown-label">Get ready...</p>
-                </div>
-              )}
-              {recording && (
-                <div className="recording-indicator">
-                  <div className="rec-dot-live" />
-                  <span>REC {Math.ceil(recordTime)}s</span>
-                  <div className="rec-bar">
-                    <div className="rec-bar-fill" style={{ width: `${progress}%` }} />
-                  </div>
-                </div>
-              )}
-            </div>
-            {!recording && countdown === 0 && (
-              <button className="btn btn-primary" onClick={handleStartRecording} disabled={!cameraReady}>
-                {cameraReady ? '🔴 Start Recording (5s)' : 'Waiting for camera...'}
-              </button>
-            )}
           </div>
         )}
 
-        {/* Step 3: Result */}
-        {step === 3 && (
-          <div className="step-content fade-in">
-            {loading && (
-              <div className="processing-state">
-                <div className="processing-spinner" />
-                <h3>Processing VLM Registration...</h3>
-                <p>This may take a moment as we set up both traditional and VLM profiles.</p>
-                <div className="processing-steps">
-                  <div className="p-step active">🎬 Extracting video frames</div>
-                  <div className="p-step">🔍 Face detection & alignment</div>
-                  <div className="p-step">🧬 ArcFace embedding extraction</div>
-                  <div className="p-step">💓 Liveness verification</div>
-                  <div className="p-step">🧠 Selecting VLM reference frames</div>
-                  <div className="p-step">🔐 Encrypting & storing</div>
-                </div>
-              </div>
-            )}
-
-            {result?.type === 'success' && (
-              <div className="auth-result success">
-                <div className="result-icon">✅</div>
-                <h2 className="result-title">VLM Registration Complete</h2>
-                <p className="result-subtitle">
-                  User ID: {result.data.user_id} — Face Quality: {(result.data.face_quality * 100).toFixed(1)}%
-                </p>
-                <div className="scores-grid">
-                  <ScoreItem label="Face Quality" value={result.data.face_quality} icon="👤" />
-                  <ScoreItem label="Liveness Score" value={result.data.liveness_score} icon="💓" />
-                  <ScoreItem label="VLM Ref Frames" value={result.data.vlm_ref_frames_stored} isCount icon="🧠" />
-                </div>
-                <div className="vlm-info-box" style={{ marginTop: '16px' }}>
-                  <p>✅ Traditional face profile + {result.data.vlm_ref_frames_stored} VLM reference frames stored.</p>
-                  <p>You can now use <strong>VLM Login</strong> for AI-powered authentication.</p>
-                </div>
-                <button className="btn btn-secondary" onClick={handleReset}>Register Another</button>
-              </div>
-            )}
-
-            {result?.type === 'error' && (
-              <div className="auth-result failure">
-                <div className="result-icon">❌</div>
-                <h2 className="result-title">Registration Failed</h2>
-                <p className="result-subtitle">{result.data.message}</p>
-                <button className="btn btn-secondary" onClick={handleReset}>Try Again</button>
-              </div>
-            )}
+        {/* Error */}
+        {result?.type === 'error' && (
+          <div className="alert alert-error">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="15" y1="9" x2="9" y2="15" />
+              <line x1="9" y1="9" x2="15" y2="15" />
+            </svg>
+            <div className="alert-content">
+              <div className="alert-title">Registration Failed</div>
+              <div className="alert-detail">{result.data.message}</div>
+            </div>
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-/* Score Item */
-function ScoreItem({ label, value, icon, isCount = false }) {
-  const display = isCount ? value : `${(value * 100).toFixed(1)}%`;
-  return (
-    <div className="vlm-score-item">
-      <span className="vlm-score-icon">{icon}</span>
-      <span className="vlm-score-label">{label}</span>
-      <span className="vlm-score-value">{display}</span>
     </div>
   );
 }

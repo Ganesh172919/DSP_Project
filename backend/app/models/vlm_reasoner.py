@@ -155,11 +155,9 @@ class VLMReasoner:
         self._load_attempted = False
 
     def _load_model(self):
-        """Lazy-load the VLM model based on available hardware."""
+        """Lazy-load the VLM model based on available hardware. Auto-downloads if needed."""
         if self._load_attempted:
             return
-
-        self._load_attempted = True
 
         from app.vlm_config import select_vlm_model, VLM_CACHE_DIR
 
@@ -167,22 +165,28 @@ class VLMReasoner:
 
         if model_id is None:
             logger.warning("VLM: No suitable model found — VLM reasoning disabled")
+            self._load_attempted = True
             return
 
         self.model_id = model_id
         self.device = device
 
         try:
+            logger.info(f"VLM: Loading {model_id} (will auto-download if not cached)...")
+            logger.info(f"VLM cache dir: {VLM_CACHE_DIR}")
+
             if "qwen" in model_id.lower():
                 self._load_qwen(model_id, quantize, device)
             elif "moondream" in model_id.lower():
                 self._load_moondream(model_id, device)
             else:
                 logger.error(f"VLM: Unknown model ID: {model_id}")
+                self._load_attempted = True
                 return
 
             self.loaded = True
-            logger.info(f"VLM loaded: {self.model_name} on {self.device}")
+            self._load_attempted = True
+            logger.info(f"✅ VLM loaded successfully: {self.model_name} on {self.device}")
 
         except Exception as e:
             logger.error(f"VLM load failed ({model_id}): {e}", exc_info=True)
@@ -195,9 +199,13 @@ class VLMReasoner:
                     fb_device = "cuda" if device == "cuda" else "cpu"
                     self._load_moondream(MOONDREAM_MODEL_ID, fb_device)
                     self.loaded = True
-                    logger.info(f"VLM fallback loaded: {self.model_name} on {self.device}")
+                    self._load_attempted = True
+                    logger.info(f"✅ VLM fallback loaded: {self.model_name} on {self.device}")
                 except Exception as e2:
                     logger.error(f"VLM fallback also failed: {e2}", exc_info=True)
+                    self._load_attempted = True  # stop retrying after all options exhausted
+            else:
+                self._load_attempted = True
 
     def _load_qwen(self, model_id: str, quantize: str, device: str):
         """Load Qwen2.5-VL-3B-Instruct with 4-bit quantization."""
@@ -241,12 +249,12 @@ class VLMReasoner:
         self.device = device
 
     def _load_moondream(self, model_id: str, device: str):
-        """Load moondream2 model."""
+        """Load moondream2 model. Auto-downloads ~3.6GB on first run."""
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
         from app.vlm_config import VLM_CACHE_DIR
 
-        logger.info(f"Loading moondream2 on {device}...")
+        logger.info(f"Loading moondream2 on {device}... (auto-downloads ~3.6GB on first use)")
 
         dtype = torch.float16 if device == "cuda" else torch.float32
 
@@ -256,6 +264,7 @@ class VLMReasoner:
             trust_remote_code=True,
             torch_dtype=dtype,
             device_map={"": device} if device == "cuda" else None,
+            revision="2025-01-09",  # pin a stable revision
         )
 
         if device == "cpu":
@@ -265,9 +274,11 @@ class VLMReasoner:
             model_id,
             cache_dir=str(VLM_CACHE_DIR),
             trust_remote_code=True,
+            revision="2025-01-09",
         )
         self.model_name = "moondream2"
         self.device = device
+        logger.info("moondream2 model loaded successfully")
 
     def _infer_qwen(self, images: list[Image.Image], prompt: str) -> str:
         """Run inference with Qwen2.5-VL."""
@@ -310,23 +321,38 @@ class VLMReasoner:
         return self.processor.decode(generated_ids, skip_special_tokens=True)
 
     def _infer_moondream(self, images: list[Image.Image], prompt: str) -> str:
-        """Run inference with moondream2."""
+        """Run inference with moondream2. Handles API variations across versions."""
         from app.vlm_config import VLM_MAX_NEW_TOKENS
 
-        # moondream2 handles single image typically.
-        # For multi-image, we create a composite image.
+        # moondream2 handles single image — create composite for multi-image
         if len(images) > 1:
             composite = self._create_composite_image(images)
         else:
             composite = images[0]
 
-        # moondream2's API: model.answer_question(enc_image, question, tokenizer)
-        enc_image = self.model.encode_image(composite)
-        answer = self.model.answer_question(
-            enc_image, prompt, self.tokenizer,
-        )
-
-        return answer
+        try:
+            # Try newer API first (moondream >= 2025)
+            enc_image = self.model.encode_image(composite)
+            answer = self.model.answer_question(
+                enc_image, prompt, self.tokenizer,
+            )
+            return answer
+        except (AttributeError, TypeError) as e:
+            logger.info(f"moondream2 answer_question API not available ({e}), trying generate")
+            # Fallback: use transformers generate() API
+            try:
+                from transformers import AutoProcessor
+                inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+                import torch
+                with torch.no_grad():
+                    outputs = self.model.generate(
+                        **inputs,
+                        max_new_tokens=VLM_MAX_NEW_TOKENS,
+                    )
+                return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            except Exception as e2:
+                logger.error(f"moondream2 fallback generate also failed: {e2}")
+                return '{"reasoning": "moondream2 inference failed", "overall_score": 0.5}'
 
     def _create_composite_image(self, images: list[Image.Image]) -> Image.Image:
         """

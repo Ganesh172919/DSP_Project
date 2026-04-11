@@ -144,3 +144,31 @@ Combining these layers makes the system more robust than face matching alone.
 ## Important Note On Metrics
 
 The documentation should not claim fixed accuracy values unless produced by the included evaluation script on a known dataset. Runtime scores are available per authentication attempt, but dataset-level benchmark results are not currently committed.
+
+## Latest Addition: Vision Language Model Reasoning
+
+The latest implementation adds an optional VLM reasoning layer for semantic comparison of registration and authentication frames.
+
+### Supported VLMs
+
+| Model | Runtime role | Selection condition |
+| --- | --- | --- |
+| Qwen2.5-VL-3B-Instruct | Higher-capability multi-image visual reasoning | Preferred when CUDA and enough VRAM are available. |
+| moondream2 | Lightweight visual reasoning fallback | Used when CPU or lower-resource execution is needed. |
+
+### Why Add A VLM
+
+Traditional biometric layers produce numeric evidence. The VLM adds qualitative visual reasoning:
+
+- compares face structure across registration and authentication frames
+- looks for obvious photo, screen, mask, or manipulation cues
+- returns identity, liveness, authenticity, and overall confidence values
+- returns natural-language reasoning for the UI
+
+### How It Is Used
+
+The VLM is invoked only after the traditional video pipeline grants access. This keeps the original liveness and deepfake gates as the first line of defense and avoids spending VLM compute on attempts already denied by the numeric pipeline.
+
+### VLM Limits
+
+VLM reasoning is not a replacement for ArcFace, liveness, or deepfake detection. It is a complementary check. It can be slow, hardware-dependent, and probabilistic, so benchmark claims should still be generated with a controlled evaluation set.
