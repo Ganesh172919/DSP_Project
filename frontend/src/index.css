@@ -1199,3 +1199,225 @@ body {
     font-size: 56px;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   VLM (Vision Language Model) — Hybrid Auth Styles
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── VLM Badge ──────────────────────────────────────────────── */
+
+.vlm-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px;
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(99, 102, 241, 0.15));
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #a78bfa;
+  margin-bottom: 12px;
+  animation: vlm-glow 3s ease-in-out infinite alternate;
+}
+
+@keyframes vlm-glow {
+  0% { box-shadow: 0 0 5px rgba(139, 92, 246, 0.1); }
+  100% { box-shadow: 0 0 20px rgba(139, 92, 246, 0.25); }
+}
+
+.vlm-badge-icon {
+  font-size: 16px;
+}
+
+/* ─── VLM Card Variant ───────────────────────────────────────── */
+
+.vlm-card {
+  max-width: 600px;
+  border-color: rgba(139, 92, 246, 0.15);
+}
+
+/* ─── VLM Nav Link ───────────────────────────────────────────── */
+
+.nav-divider {
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  opacity: 0.4;
+  padding: 0 4px;
+}
+
+.vlm-nav-link {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.06), rgba(99, 102, 241, 0.06));
+  border: 1px solid rgba(139, 92, 246, 0.12) !important;
+}
+
+.vlm-nav-link:hover {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.12), rgba(99, 102, 241, 0.12)) !important;
+  border-color: rgba(139, 92, 246, 0.25) !important;
+}
+
+.vlm-nav-link.active {
+  background: rgba(139, 92, 246, 0.15) !important;
+  border-color: rgba(139, 92, 246, 0.35) !important;
+  color: #a78bfa !important;
+}
+
+/* ─── VLM Info Box ───────────────────────────────────────────── */
+
+.vlm-info-box {
+  padding: 16px 20px;
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.06), rgba(99, 102, 241, 0.04));
+  border: 1px solid rgba(139, 92, 246, 0.15);
+  border-radius: var(--radius-md);
+  margin-bottom: 20px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.vlm-info-box h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #a78bfa;
+  margin-bottom: 8px;
+}
+
+.vlm-info-box ul {
+  margin: 8px 0 0 16px;
+  padding: 0;
+}
+
+.vlm-info-box ul li {
+  margin-bottom: 4px;
+}
+
+.vlm-info-box p {
+  margin-bottom: 6px;
+}
+
+/* ─── VLM Score Items ────────────────────────────────────────── */
+
+.vlm-score-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-glass);
+}
+
+.vlm-score-icon {
+  font-size: 18px;
+}
+
+.vlm-score-label {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.vlm-score-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent-emerald);
+}
+
+/* ─── VLM Section (in results) ───────────────────────────────── */
+
+.vlm-section {
+  text-align: left;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-glass);
+}
+
+.vlm-section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+/* ─── VLM Model Badge ────────────────────────────────────────── */
+
+.vlm-model-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  background: rgba(139, 92, 246, 0.1);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: 20px;
+  font-size: 12px;
+  color: #a78bfa;
+  margin-bottom: 12px;
+}
+
+.vlm-model-badge strong {
+  font-weight: 700;
+}
+
+/* ─── VLM Reasoning Box ──────────────────────────────────────── */
+
+.vlm-reasoning-box {
+  padding: 20px;
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.06), rgba(99, 102, 241, 0.04));
+  border: 1px solid rgba(139, 92, 246, 0.15);
+  border-radius: var(--radius-md);
+  position: relative;
+  overflow: hidden;
+}
+
+.vlm-reasoning-box::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: linear-gradient(180deg, #8b5cf6, #6366f1);
+  border-radius: 2px;
+}
+
+.vlm-reasoning-text {
+  padding-left: 12px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.vlm-reasoning-text p {
+  margin-bottom: 8px;
+}
+
+.vlm-reasoning-text p:last-child {
+  margin-bottom: 0;
+}
+
+/* ─── VLM Responsive ─────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .vlm-card {
+    max-width: 100%;
+  }
+
+  .nav-links {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .nav-divider {
+    display: none;
+  }
+
+  .vlm-nav-link {
+    font-size: 12px;
+    padding: 6px 12px;
+  }
+
+  .vlm-reasoning-box {
+    padding: 14px;
+  }
+}
+

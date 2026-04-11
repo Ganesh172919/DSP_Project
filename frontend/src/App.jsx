@@ -2,6 +2,8 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, NavLink } from 'react-router-dom';
 import Register from './pages/Register';
 import Login from './pages/Login';
+import VLMRegister from './pages/VLMRegister';
+import VLMLogin from './pages/VLMLogin';
 
 /* Shield icon SVG */
 const ShieldIcon = () => (
@@ -34,6 +36,19 @@ export default function App() {
             >
               Login
             </NavLink>
+            <span className="nav-divider">|</span>
+            <NavLink
+              to="/vlm-register"
+              className={({ isActive }) => `nav-link vlm-nav-link ${isActive ? 'active' : ''}`}
+            >
+              🧠 VLM Register
+            </NavLink>
+            <NavLink
+              to="/vlm-login"
+              className={({ isActive }) => `nav-link vlm-nav-link ${isActive ? 'active' : ''}`}
+            >
+              🧠 VLM Login
+            </NavLink>
           </div>
         </nav>
 
@@ -42,8 +57,11 @@ export default function App() {
           <Route path="/" element={<Register />} />
           <Route path="/register" element={<Register />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/vlm-register" element={<VLMRegister />} />
+          <Route path="/vlm-login" element={<VLMLogin />} />
         </Routes>
       </div>
     </Router>
   );
 }
+

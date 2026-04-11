@@ -34,6 +34,7 @@ from app.db import crud
 from app.crypto import encrypt_embedding, decrypt_embedding, create_jwt
 from app.pipeline import AuthPipeline
 from app.instructions import pick_random_instructions, get_all_instructions, get_instruction_stats
+from app.vlm_routes import vlm_router  # VLM hybrid authentication endpoints
 
 # ─── Logging ────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -80,8 +81,15 @@ pipeline: Optional[AuthPipeline] = None
 def startup():
     global pipeline
     init_db()
+    # Create VLM tables (additive — does not affect existing tables)
+    from app.db.vlm_models import init_vlm_tables
+    init_vlm_tables()
     pipeline = AuthPipeline()
     logger.info("Application started — DB initialized, pipeline loaded")
+
+
+# Mount VLM router (all VLM endpoints under /api/v1/vlm/)
+app.include_router(vlm_router)
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
