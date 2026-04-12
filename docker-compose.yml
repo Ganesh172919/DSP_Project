@@ -1,0 +1,29 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dsp-project-backend
+    environment:
+      FACE_AUTH_AES_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      PYTHONPATH: /app
+      VLM_MODEL: auto
+      VLM_MAX_RAM_GB: "5.0"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/data:/app/data
+      - ./backend/weights:/app/weights
+      - ./backend/keys:/app/keys
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: dsp-project-frontend
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8000
+    depends_on:
+      - backend
+    ports:
+      - "5173:5173"

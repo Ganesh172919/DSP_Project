@@ -2,6 +2,13 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+ENV PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HF_HUB_DISABLE_XET=1 \
+    HF_HUB_DISABLE_SYMLINKS_WARNING=1 \
+    TOKENIZERS_PARALLELISM=false
+
 # System dependencies for OpenCV and MediaPipe
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
@@ -13,11 +20,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Python dependencies
 COPY requirements.txt .
+COPY vlm_requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r vlm_requirements.txt
 
 # Copy application code
 COPY app/ app/
 COPY training/ training/
+COPY weights/ weights/
 
 # Create data directories
 RUN mkdir -p data weights keys
@@ -31,6 +41,9 @@ ENV PYTHONPATH="/app"
 
 # Expose port
 EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=5 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()" || exit 1
 
 # Run with uvicorn
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

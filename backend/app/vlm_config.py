@@ -177,6 +177,24 @@ Respond ONLY in JSON:
   "red_flags": []
 }"""
 
+VLM_STRICT_ANTI_SPOOF_APPENDIX = """
+
+NON-NEGOTIABLE AUTHENTICATION POLICY FOR BOTH HYBRID AND PURE VLM MODES:
+- Grant access ONLY when the authentication frames show the real user directly in the camera view.
+- The live user's face must be the main full-frame subject. If a mobile phone, tablet, laptop, monitor, TV, printed photo, picture, poster, replayed video, or any secondary displayed face is visible anywhere in the authentication frames, treat it as a presentation attack and DENY.
+- If a face appears inside another rectangle, device screen, bezel, playback window, gallery image, or reflected display, DENY even if the face resembles the registered user.
+- If the user's face is blocked, cropped, partially hidden, or covered by a phone or other device, DENY. Access is allowed only when the full face is clearly visible in the main camera frame.
+- Compare the authentication frames for eye-state changes. Natural blink evidence means the eyes should not look frozen in exactly the same state across all auth frames. If the eyes remain identical or frozen across the frames, treat that as negative liveness evidence and keep liveness low.
+- If you are uncertain whether the user is live, whether a device is present, or whether the full face is visible, DENY.
+- If any presentation attack evidence exists, set same_person=false, is_live=false, is_authentic=false, same_person_confidence<=0.10, liveness_confidence<=0.10, authenticity_confidence<=0.10, and overall_score<=0.05.
+- The overall_score is the final authentication trust score, not the confidence of your explanation. If is_live=false or is_authentic=false, overall_score must stay low.
+- Include explicit red flags when relevant, choosing from: visible_mobile_phone, visible_tablet, visible_laptop_screen, visible_monitor_or_tv, printed_photo, picture_or_poster, replayed_video, screen_bezel_or_edges, face_inside_secondary_rectangle, frozen_eye_state, full_face_not_visible, face_occluded_by_device.
+- Respond with JSON only. Do not add markdown, prose outside JSON, or extra commentary.
+"""
+
+VLM_JUDGE_PROMPT += VLM_STRICT_ANTI_SPOOF_APPENDIX
+VLM_JUDGE_PROMPT_SIMPLE += VLM_STRICT_ANTI_SPOOF_APPENDIX
+
 
 def detect_available_hardware():
     """Detect GPU/CPU capabilities for model selection."""
