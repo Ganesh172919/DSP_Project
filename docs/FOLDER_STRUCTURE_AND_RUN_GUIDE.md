@@ -1,19 +1,18 @@
-# Folder Structure And Run Guide
+# Folder Structure and Run Guide
 
 Repository: [Ganesh172919/DSP_Project](https://github.com/Ganesh172919/DSP_Project)
 
-This document explains:
+If you want the full beginner walkthrough from GitHub ZIP download to running the project, use:
 
-- what should exist in the project folder
-- which files are important
-- how to run the project locally
-- how to run the project with Docker
-- what gets created automatically at runtime
+- [BEGINNER_GITHUB_ZIP_TO_RUN_GUIDE.md](BEGINNER_GITHUB_ZIP_TO_RUN_GUIDE.md)
 
-## Recommended Top-Level Folder Layout
+This document focuses on the folder structure and the minimum files needed to run the project correctly.
+
+## Required Top-Level Structure
 
 ```text
 DSP Project/
+|-- .env.example
 |-- backend/
 |-- frontend/
 |-- docs/
@@ -24,20 +23,19 @@ DSP Project/
 `-- vlm_approaches.md
 ```
 
-## Backend Folder Contents
+## Required Backend Structure
 
 ```text
 backend/
 |-- app/
+|   |-- config.py
 |   |-- main.py
 |   |-- pipeline.py
 |   |-- vlm_config.py
 |   |-- vlm_pipeline.py
 |   |-- vlm_routes.py
-|   |-- config.py
 |   |-- crypto.py
 |   |-- video_utils.py
-|   |-- instructions.py
 |   |-- db/
 |   `-- models/
 |-- data/
@@ -46,28 +44,10 @@ backend/
 |-- weights/
 |-- requirements.txt
 |-- vlm_requirements.txt
-|-- Dockerfile
-`-- .dockerignore
+`-- Dockerfile
 ```
 
-### Important backend folders
-
-- `app/`: all backend source code
-- `app/models/`: detector, recognizer, liveness, deepfake, VLM reasoner
-- `app/db/`: SQLAlchemy models and CRUD logic
-- `data/`: runtime databases and stored VLM frames
-- `weights/`: ONNX weights and optional VLM model cache
-- `keys/`: JWT keys
-- `training/`: optional training and evaluation scripts
-
-### Important backend files
-
-- `requirements.txt`: normal backend dependencies
-- `vlm_requirements.txt`: VLM dependencies
-- `Dockerfile`: backend container build file
-- `app/vlm_config.py`: VLM thresholds, prompt text, and model selection
-
-## Frontend Folder Contents
+## Required Frontend Structure
 
 ```text
 frontend/
@@ -76,26 +56,17 @@ frontend/
 |   |-- components/
 |   |-- pages/
 |   `-- utils/
-|-- index.html
 |-- package.json
 |-- package-lock.json
 |-- vite.config.js
-|-- Dockerfile
-`-- .dockerignore
+`-- Dockerfile
 ```
 
-### Important frontend pages
+## Files Created Automatically
 
-- `src/pages/Register.jsx`
-- `src/pages/Login.jsx`
-- `src/pages/VLMRegister.jsx`
-- `src/pages/VLMLogin.jsx`
-- `src/pages/PureVLMLogin.jsx`
+The project can create these automatically after setup or first run:
 
-## Files And Folders Created Automatically
-
-The project can create these automatically if they do not already exist:
-
+- `.env` after you copy it from `.env.example`
 - `backend/data/auth.db`
 - `backend/data/vlm_ref_frames/`
 - `backend/keys/private.pem`
@@ -103,32 +74,27 @@ The project can create these automatically if they do not already exist:
 - `backend/weights/face_detection_yunet_2023mar.onnx`
 - `backend/weights/w600k_r50.onnx`
 - `backend/weights/vlm_cache/`
+- `backend/venv/` if you use manual Python setup
+- `frontend/node_modules/` if you use manual frontend setup
 
-## What You Should Keep In The Folder
+## `.env` Setup
 
-For a working project checkout, make sure these exist:
+Create the root `.env` file from the project root:
 
-- `backend/app`
-- `backend/requirements.txt`
-- `backend/vlm_requirements.txt`
-- `frontend/src`
-- `frontend/package.json`
-- `frontend/package-lock.json`
-- `frontend/vite.config.js`
-- `docker-compose.yml`
-- `README.md`
+```powershell
+Copy-Item .env.example .env
+```
 
-Optional but useful:
+The backend now loads:
 
-- `backend/weights/face_detection_yunet_2023mar.onnx`
-- `backend/weights/w600k_r50.onnx`
-- `docs/`
+- the root `.env`
+- `backend/.env` if you create one later
 
-## Local Run Instructions
+Docker Compose also uses the root `.env`.
 
-### Backend Setup
+## Manual Run Summary
 
-Use Python `3.11` or `3.12`.
+Backend:
 
 ```powershell
 cd backend
@@ -136,15 +102,10 @@ python -m venv venv
 .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 pip install -r vlm_requirements.txt
-$env:FACE_AUTH_AES_KEY = "0000000000000000000000000000000000000000000000000000000000000000"
-$env:PYTHONPATH = "."
-$env:VLM_MODEL = "auto"
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### Frontend Setup
-
-Open a second terminal:
+Frontend:
 
 ```powershell
 cd frontend
@@ -152,98 +113,43 @@ npm install
 npm run dev
 ```
 
-Open:
-
-```text
-http://localhost:5173
-```
-
-### Health Check
+## Docker Run Summary
 
 ```powershell
-curl.exe http://localhost:8000/health
-```
-
-Expected response:
-
-```json
-{
-  "status": "ok",
-  "pipeline_loaded": true
-}
-```
-
-## Docker Run Instructions
-
-This repository includes:
-
-- `backend/Dockerfile`
-- `frontend/Dockerfile`
-- `docker-compose.yml`
-
-Run everything with:
-
-```powershell
+Copy-Item .env.example .env
 docker compose up --build
 ```
 
-Services:
+## Expected Final Structure After Setup
 
-- Frontend: `http://localhost:5173`
-- Backend: `http://localhost:8000`
-
-Stop everything:
-
-```powershell
-docker compose down
+```text
+DSP Project/
+|-- .env
+|-- .env.example
+|-- backend/
+|   |-- app/
+|   |-- data/
+|   |   |-- auth.db
+|   |   `-- vlm_ref_frames/
+|   |-- keys/
+|   |   |-- private.pem
+|   |   `-- public.pem
+|   |-- venv/
+|   |-- weights/
+|   |   |-- face_detection_yunet_2023mar.onnx
+|   |   |-- w600k_r50.onnx
+|   |   `-- vlm_cache/
+|   |-- requirements.txt
+|   `-- vlm_requirements.txt
+|-- frontend/
+|   |-- node_modules/
+|   |-- src/
+|   |-- package.json
+|   `-- vite.config.js
+|-- docs/
+|   `-- BEGINNER_GITHUB_ZIP_TO_RUN_GUIDE.md
+|-- docker-compose.yml
+`-- README.md
 ```
 
-View logs:
-
-```powershell
-docker compose logs backend
-docker compose logs frontend
-```
-
-## VLM-Specific Usage Notes
-
-The VLM prompt has been strengthened so both hybrid and pure VLM authentication deny access when:
-
-- a mobile phone is shown to the camera
-- a laptop screen or monitor is visible
-- a replayed video is visible
-- a printed image or paper face is visible
-- a face appears inside another screen or rectangle
-- the user's full face is not clearly visible
-- eye state looks frozen across authentication frames
-
-For best VLM results:
-
-- keep only the real user's face in front of the camera
-- keep the full face visible
-- avoid showing any secondary device or photo
-- blink naturally during the capture
-
-## Main Test Pages
-
-- `http://localhost:5173/register`
-- `http://localhost:5173/login`
-- `http://localhost:5173/vlm-register`
-- `http://localhost:5173/vlm-login`
-- `http://localhost:5173/vlm-pure`
-
-## Main VLM Endpoints
-
-- `POST /api/v1/vlm/register`
-- `POST /api/v1/vlm/authenticate`
-- `POST /api/v1/vlm/authenticate/pure`
-- `GET /api/v1/vlm/status`
-- `POST /api/v1/vlm/warmup`
-
-## Troubleshooting
-
-- If the backend starts slowly on first run, model downloads may be happening.
-- If VLM is slow, CPU-only inference is probably being used.
-- If the frontend cannot reach the backend in Docker, make sure `docker compose up --build` completed successfully and that both containers are running.
-- If the browser camera does not start, allow camera permission for `localhost`.
-- If authentication denies correctly when a phone or screen is visible, the stricter VLM prompt is working as intended.
+If your folder looks like this after setup, the project structure is ready for normal use.

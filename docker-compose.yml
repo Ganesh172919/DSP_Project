@@ -5,10 +5,11 @@ services:
       dockerfile: Dockerfile
     container_name: dsp-project-backend
     environment:
-      FACE_AUTH_AES_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      FACE_AUTH_AES_KEY: ${FACE_AUTH_AES_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
       PYTHONPATH: /app
-      VLM_MODEL: auto
-      VLM_MAX_RAM_GB: "5.0"
+      VLM_MODEL: ${VLM_MODEL:-auto}
+      VLM_MAX_RAM_GB: "${VLM_MAX_RAM_GB:-5.0}"
+      MOONDREAM_REVISION: ${MOONDREAM_REVISION:-2025-06-21}
     ports:
       - "8000:8000"
     volumes:
@@ -22,7 +23,7 @@ services:
       dockerfile: Dockerfile
     container_name: dsp-project-frontend
     environment:
-      VITE_API_PROXY_TARGET: http://backend:8000
+      VITE_API_PROXY_TARGET: ${VITE_API_PROXY_TARGET:-http://backend:8000}
     depends_on:
       - backend
     ports:

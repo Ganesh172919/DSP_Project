@@ -38,3 +38,4 @@ slowapi>=0.1.9
 # ─── Utilities ─────────────────────────────────────────────────────────
 pydantic>=2.10.0
 imageio-ffmpeg>=0.5.1
+python-dotenv>=1.0.1

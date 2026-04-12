@@ -66,6 +66,10 @@ VLM_TOP_P = 0.9
 VLM_REF_FRAME_COUNT = 3      # number of reference frames to store per user
 VLM_REF_FRAME_QUALITY = 0.90  # JPEG quality for stored reference frames
 VLM_AUTH_FRAME_COUNT = 3      # number of auth frames to send to VLM
+VLM_SMALL_MODEL_REF_FRAME_COUNT = int(os.getenv("VLM_SMALL_MODEL_REF_FRAME_COUNT", "2"))
+VLM_SMALL_MODEL_AUTH_FRAME_COUNT = int(os.getenv("VLM_SMALL_MODEL_AUTH_FRAME_COUNT", "3"))
+VLM_MOONDREAM_REF_FRAME_COUNT = int(os.getenv("VLM_MOONDREAM_REF_FRAME_COUNT", "2"))
+VLM_MOONDREAM_AUTH_FRAME_COUNT = int(os.getenv("VLM_MOONDREAM_AUTH_FRAME_COUNT", "3"))
 
 # ─── VLM Decision Thresholds ───────────────────────────────────────────────
 VLM_OVERALL_THRESHOLD = 0.55       # VLM overall score must be above this
@@ -177,6 +181,72 @@ Respond ONLY in JSON:
   "red_flags": []
 }"""
 
+VLM_JUDGE_PROMPT_SMALL_MODEL = """You are a strict facial authentication anti-spoofing checker.
+
+You MUST use BOTH:
+- registration reference frames = first images
+- current authentication frames = last images
+
+Main goal: stop spoofing attacks.
+
+Check in this order:
+1. DEVICE OR SCREEN ATTACK:
+   If authentication frames show a mobile phone, smartphone, tablet, phone gallery image, phone video, laptop screen, monitor, TV, replayed video, recorded clip, printed photo, paper photo, hard copy, photo ID, identity card, picture, poster, screen edge, bezel, reflected display, or a face inside another rectangle, this is a fake presentation attack.
+2. HANDS HOLDING ATTACK MEDIA:
+   If hands or fingers are holding a phone, laptop, tablet, paper, hard copy, ID card, or photo near the face, treat this as spoof evidence and reduce scores further.
+3. FULL FACE RULE:
+   Grant only if the real user's full face is clearly visible in the main frame and not blocked by a device or photo.
+4. EYE BLINK AND MOTION:
+   Compare authentication frames for eye blink, eye-state changes, and natural small movement. If the eyes look frozen or identical across frames, liveness must stay low.
+5. IDENTITY:
+   Compare registration frames and authentication frames using facial structure, eyes, nose, mouth, jawline, ears, and stable facial details.
+
+SCORING RULES:
+- If device/screen/photo/video spoof evidence is present:
+  same_person=false
+  is_live=false
+  is_authentic=false
+  same_person_confidence must be between 0.05 and 0.25
+  liveness_confidence must be between 0.00 and 0.15
+  authenticity_confidence must be between 0.00 and 0.15
+  overall_score must be between 0.00 and 0.10
+- If frozen eyes or no natural motion is visible:
+  set is_live=false or keep liveness_confidence at 0.25 or lower
+- If the full face is not clearly visible:
+  set is_authentic=false and keep overall_score at 0.20 or lower
+- When in doubt, deny.
+
+REASONING QUALITY RULE:
+- reasoning must clearly mention:
+  registration reference summary,
+  authentication frame summary,
+  device/screen analysis,
+  eye blink and motion analysis,
+  identity comparison,
+  final verdict.
+- If the user appears to be faking with a device, photo, or replay, say that clearly in reasoning.
+
+OUTPUT RULES:
+- Return exactly one JSON object.
+- Use ONLY top-level scalar fields.
+- Do NOT create nested objects.
+- Do NOT output ranges like 0.0-1.0.
+- Do NOT quote booleans.
+- Use real decimal numbers such as 0.08, 0.14, 0.72.
+
+Return exactly this schema:
+{
+  "same_person": false,
+  "same_person_confidence": 0.12,
+  "is_live": false,
+  "liveness_confidence": 0.08,
+  "is_authentic": false,
+  "authenticity_confidence": 0.05,
+  "overall_score": 0.06,
+  "reasoning": "Registration reference frames show ... Authentication frames show ... Device/screen analysis ... Eye blink and motion analysis ... Identity comparison ... Final verdict ...",
+  "red_flags": ["visible_mobile_phone", "replayed_video", "frozen_eye_state"]
+}"""
+
 VLM_STRICT_ANTI_SPOOF_APPENDIX = """
 
 NON-NEGOTIABLE AUTHENTICATION POLICY FOR BOTH HYBRID AND PURE VLM MODES:
@@ -192,8 +262,37 @@ NON-NEGOTIABLE AUTHENTICATION POLICY FOR BOTH HYBRID AND PURE VLM MODES:
 - Respond with JSON only. Do not add markdown, prose outside JSON, or extra commentary.
 """
 
+VLM_REASONING_QUALITY_APPENDIX = """
+
+ADDITIONAL REASONING REQUIREMENTS:
+- Carefully compare the stored registration reference frames against the current authentication frames before making the final decision.
+- The reasoning must explain what is stable across registration frames and what changes across authentication frames.
+- Focus strongly on screen analysis: glowing edges, bezels, playback windows, reflections, flat lighting, paper texture, rectangular crops, and displayed-face artifacts.
+- Focus strongly on eye-blink and motion analysis across the authentication frames. If the eye state is frozen, identical, or lacks natural motion, reduce liveness.
+- If a phone, laptop, screen, photo, hard copy, or replay is visible, explicitly say the user is likely faking the authentication attempt.
+- Never produce placeholder values. Every confidence field must be a real decimal number between 0.00 and 1.00.
+"""
+
+VLM_FORCE_DENY_RED_FLAGS = (
+    "visible_mobile_phone",
+    "visible_tablet",
+    "visible_laptop_screen",
+    "visible_monitor_or_tv",
+    "printed_photo",
+    "picture_or_poster",
+    "replayed_video",
+    "screen_bezel_or_edges",
+    "face_inside_secondary_rectangle",
+    "face_occluded_by_device",
+    "full_face_not_visible",
+)
+
 VLM_JUDGE_PROMPT += VLM_STRICT_ANTI_SPOOF_APPENDIX
+VLM_JUDGE_PROMPT += VLM_REASONING_QUALITY_APPENDIX
 VLM_JUDGE_PROMPT_SIMPLE += VLM_STRICT_ANTI_SPOOF_APPENDIX
+VLM_JUDGE_PROMPT_SIMPLE += VLM_REASONING_QUALITY_APPENDIX
+VLM_JUDGE_PROMPT_SMALL_MODEL += VLM_STRICT_ANTI_SPOOF_APPENDIX
+VLM_JUDGE_PROMPT_SMALL_MODEL += VLM_REASONING_QUALITY_APPENDIX
 
 
 def detect_available_hardware():

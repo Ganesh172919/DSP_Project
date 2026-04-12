@@ -120,16 +120,30 @@ def _parse_vlm_json(text: str) -> dict:
 
     # Try to extract boolean values
     for key in ["same_person", "is_live", "is_authentic"]:
-        match = re.search(rf'"{key}"\s*:\s*(true|false)', text, re.IGNORECASE)
+        match = re.search(
+            rf'"{key}"\s*:\s*(?:"(?P<quoted>true|false)"|(?P<plain>true|false))',
+            text,
+            re.IGNORECASE,
+        )
         if match:
-            result[key] = match.group(1).lower() == "true"
+            token = match.group("quoted") or match.group("plain")
+            coerced = _coerce_bool(token)
+            if coerced is not None:
+                result[key] = coerced
 
     # Try to extract float values
     for key in ["same_person_confidence", "liveness_confidence",
                  "authenticity_confidence", "overall_score"]:
-        match = re.search(rf'"{key}"\s*:\s*([\d.]+)', text)
+        match = re.search(
+            rf'"{key}"\s*:\s*(?:"(?P<quoted>[^"]+)"|(?P<plain>[^,\n}}]+))',
+            text,
+            re.IGNORECASE,
+        )
         if match:
-            result[key] = float(match.group(1))
+            token = (match.group("quoted") or match.group("plain") or "").strip()
+            coerced = _coerce_score(token)
+            if coerced is not None:
+                result[key] = coerced
 
     return result
 
@@ -152,6 +166,129 @@ def _normalize_moondream_output(output) -> str:
     return str(output)
 
 
+def _coerce_bool(value) -> Optional[bool]:
+    """Coerce bool-like JSON/string values into Python booleans."""
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return bool(value)
+
+    if isinstance(value, str):
+        lowered = value.strip().strip('"').strip("'").lower()
+        if lowered in {"true", "yes", "1"}:
+            return True
+        if lowered in {"false", "no", "0"}:
+            return False
+
+    return None
+
+
+def _coerce_score(value) -> Optional[float]:
+    """Parse numeric strings conservatively and reject placeholder ranges."""
+    if isinstance(value, bool):
+        return None
+
+    if isinstance(value, (int, float)):
+        try:
+            score = float(value)
+        except (TypeError, ValueError):
+            return None
+        if np.isnan(score) or np.isinf(score):
+            return None
+        return float(np.clip(score, 0.0, 1.0))
+
+    if isinstance(value, str):
+        cleaned = value.strip().strip('"').strip("'")
+        if not cleaned:
+            return None
+        if "-" in cleaned:
+            return None
+        if not re.fullmatch(r"\d+(?:\.\d+)?", cleaned):
+            return None
+        score = float(cleaned)
+        return float(np.clip(score, 0.0, 1.0))
+
+    return None
+
+
+def _find_first_nested_value(data, target_key: str):
+    """Recursively find the first matching key value in nested dict/list data."""
+    if isinstance(data, dict):
+        if target_key in data and not isinstance(data[target_key], (dict, list)):
+            return data[target_key]
+        for value in data.values():
+            found = _find_first_nested_value(value, target_key)
+            if found is not None:
+                return found
+
+    if isinstance(data, list):
+        for item in data:
+            found = _find_first_nested_value(item, target_key)
+            if found is not None:
+                return found
+
+    return None
+
+
+def _flatten_nested_vlm_output(parsed: dict) -> dict:
+    """Flatten malformed nested JSON into the expected top-level schema."""
+    if not isinstance(parsed, dict):
+        return {"_schema_malformed": True}
+
+    schema_keys = (
+        "same_person",
+        "same_person_confidence",
+        "is_live",
+        "liveness_confidence",
+        "is_authentic",
+        "authenticity_confidence",
+        "overall_score",
+        "reasoning",
+        "red_flags",
+    )
+
+    flattened: dict = {"_schema_malformed": False}
+
+    for key in schema_keys:
+        value = parsed.get(key)
+        if isinstance(value, dict):
+            flattened["_schema_malformed"] = True
+        elif value is not None:
+            flattened[key] = value
+            continue
+
+        nested_value = _find_first_nested_value(parsed, key)
+        if nested_value is not None:
+            flattened[key] = nested_value
+
+    red_flags = flattened.get("red_flags")
+    if red_flags is None:
+        red_flags = []
+    if not isinstance(red_flags, list):
+        red_flags = [str(red_flags)]
+    flattened["red_flags"] = [str(flag).strip() for flag in red_flags if str(flag).strip()]
+
+    return flattened
+
+
+def _looks_like_schema_echo(text: str) -> bool:
+    """Detect placeholder/schema echo output from weaker VLMs."""
+    lowered = (text or "").lower()
+    if not lowered:
+        return False
+
+    echo_markers = (
+        '"same_person": {',
+        "0.0-1.0",
+        "true/false",
+        "return exactly this schema",
+        "respond only in json",
+        "use real decimal numbers",
+    )
+    return any(marker in lowered for marker in echo_markers)
+
+
 def _infer_boolean_signal(
     text: str,
     positive_terms: list[str],
@@ -172,23 +309,200 @@ def _infer_boolean_signal(
 
 def _clamp_score(value, default: float) -> float:
     """Clamp a parsed score into [0, 1], with a default when parsing fails."""
-    try:
-        score = float(value)
-    except (TypeError, ValueError):
+    score = _coerce_score(value)
+    if score is None:
         return default
+    return score
 
-    if np.isnan(score) or np.isinf(score):
-        return default
 
-    return float(np.clip(score, 0.0, 1.0))
+def _merge_red_flags(existing: list[str], additions: list[str]) -> list[str]:
+    """Merge red flags while preserving order and uniqueness."""
+    merged: list[str] = []
+    for flag in list(existing) + list(additions):
+        normalized = str(flag).strip()
+        if normalized and normalized not in merged:
+            merged.append(normalized)
+    return merged
+
+
+def _red_flags_contain(red_flags: list[str], *targets: str) -> bool:
+    """Return True when any target red flag is present."""
+    red_flag_set = {str(flag).strip() for flag in red_flags}
+    return any(target in red_flag_set for target in targets)
+
+
+def _apply_security_overrides(
+    *,
+    same_person: bool,
+    same_person_confidence: float,
+    is_live: bool,
+    liveness_confidence: float,
+    is_authentic: bool,
+    authenticity_confidence: float,
+    overall_score: float,
+    reasoning: str,
+    red_flags: list[str],
+    raw_output: str,
+    schema_malformed: bool,
+) -> dict:
+    """Apply conservative score caps when spoof evidence or malformed schema appears."""
+    reasoning = (reasoning or "").strip()
+    evidence_text = " ".join(
+        [
+            raw_output or "",
+            reasoning,
+            " ".join(red_flags or []),
+        ]
+    ).lower()
+
+    detected_flags: list[str] = []
+    severity = 0
+
+    rule_map = [
+        (("mobile phone", "smartphone", "cell phone", "phone screen", "mobile screen", "phone display"), "visible_mobile_phone", 3),
+        (("tablet", "ipad"), "visible_tablet", 3),
+        (("laptop screen", "laptop display", "notebook screen", "laptop"), "visible_laptop_screen", 3),
+        (("monitor", "tv screen", "television", "display screen", "electronic display"), "visible_monitor_or_tv", 3),
+        (("printed photo", "paper photo", "hard copy", "hardcopy", "paper face", "photo id", "identity card", "id card", "passport photo", "document photo"), "printed_photo", 3),
+        (("poster", "picture", "portrait photo", "framed photo", "portrait print"), "picture_or_poster", 2),
+        (("replayed video", "video playing", "video replay", "playing video", "recorded clip", "recorded video", "gallery video"), "replayed_video", 3),
+        (("screen edge", "bezel", "glowing edge", "device frame", "screen border", "black border"), "screen_bezel_or_edges", 2),
+        (("secondary rectangle", "inside another rectangle", "screen-within-a-frame", "face inside another rectangle", "playback window", "gallery image"), "face_inside_secondary_rectangle", 3),
+        (("full face not visible", "partial face", "partially hidden", "cropped face", "face cut off", "not full face"), "full_face_not_visible", 2),
+        (("occluded by device", "covered by phone", "blocked by phone", "covered by device", "held in front of the face", "covering part of face"), "face_occluded_by_device", 3),
+        (("frozen eyes", "identical eye", "same eye state", "no blink", "frozen eye state"), "frozen_eye_state", 2),
+    ]
+
+    for terms, flag, points in rule_map:
+        if any(term in evidence_text for term in terms):
+            detected_flags.append(flag)
+            severity += points
+
+    if (
+        any(
+            term in evidence_text
+            for term in (
+                "holding a",
+                "held up",
+                "hands holding",
+                "fingers holding",
+                "holding device",
+                "hand visible",
+                "hands visible",
+                "fingers visible",
+            )
+        )
+        and any(
+            flag in detected_flags
+            for flag in (
+                "visible_mobile_phone",
+                "visible_tablet",
+                "visible_laptop_screen",
+                "visible_monitor_or_tv",
+                "printed_photo",
+                "picture_or_poster",
+            )
+        )
+    ):
+        detected_flags.append("face_occluded_by_device")
+        severity += 2
+
+    if schema_malformed:
+        detected_flags.append("invalid_vlm_schema_output")
+
+    red_flags = _merge_red_flags(red_flags, detected_flags)
+
+    device_attack = _red_flags_contain(
+        red_flags,
+        "visible_mobile_phone",
+        "visible_tablet",
+        "visible_laptop_screen",
+        "visible_monitor_or_tv",
+        "printed_photo",
+        "picture_or_poster",
+        "replayed_video",
+        "screen_bezel_or_edges",
+        "face_inside_secondary_rectangle",
+        "face_occluded_by_device",
+        "full_face_not_visible",
+    )
+    frozen_eye_state = _red_flags_contain(red_flags, "frozen_eye_state")
+
+    if device_attack:
+        same_person = False
+        is_live = False
+        is_authentic = False
+
+        if severity >= 6:
+            same_person_confidence = min(same_person_confidence, 0.20)
+            liveness_confidence = min(liveness_confidence, 0.05)
+            authenticity_confidence = min(authenticity_confidence, 0.05)
+            overall_score = min(overall_score, 0.05)
+        elif severity >= 3:
+            same_person_confidence = min(same_person_confidence, 0.30)
+            liveness_confidence = min(liveness_confidence, 0.10)
+            authenticity_confidence = min(authenticity_confidence, 0.10)
+            overall_score = min(overall_score, 0.10)
+        else:
+            same_person_confidence = min(same_person_confidence, 0.45)
+            liveness_confidence = min(liveness_confidence, 0.20)
+            authenticity_confidence = min(authenticity_confidence, 0.20)
+            overall_score = min(overall_score, 0.20)
+
+        if "faking" not in reasoning.lower():
+            spoof_note = (
+                "Authentication frames indicate the user is likely faking the login with a screen, device, photo, or replayed media."
+            )
+            reasoning = f"{reasoning} {spoof_note}".strip() if reasoning else spoof_note
+
+    if frozen_eye_state and not device_attack:
+        is_live = False
+        liveness_confidence = min(liveness_confidence, 0.25)
+        overall_score = min(overall_score, 0.35)
+        if "blink" not in reasoning.lower():
+            blink_note = "Authentication frames show frozen or identical eye states with weak blink evidence."
+            reasoning = f"{reasoning} {blink_note}".strip() if reasoning else blink_note
+
+    if schema_malformed and not device_attack:
+        same_person_confidence = min(same_person_confidence, 0.45)
+        liveness_confidence = min(liveness_confidence, 0.35)
+        authenticity_confidence = min(authenticity_confidence, 0.35)
+        overall_score = min(overall_score, 0.35)
+        if "malformed" not in reasoning.lower():
+            malformed_note = (
+                "The VLM returned malformed schema output, so a conservative post-processing fallback was applied."
+            )
+            reasoning = f"{reasoning} {malformed_note}".strip() if reasoning else malformed_note
+
+    if not is_authentic:
+        overall_score = min(overall_score, 0.30)
+
+    return {
+        "same_person": same_person,
+        "same_person_confidence": same_person_confidence,
+        "is_live": is_live,
+        "liveness_confidence": liveness_confidence,
+        "is_authentic": is_authentic,
+        "authenticity_confidence": authenticity_confidence,
+        "overall_score": overall_score,
+        "reasoning": reasoning,
+        "red_flags": red_flags,
+    }
 
 
 def _normalize_parsed_vlm_output(parsed: dict, raw_output: str) -> dict:
     """Fill missing confidence values when the model answers in natural language."""
-    raw_output_lower = raw_output.lower()
+    parsed = _flatten_nested_vlm_output(parsed)
+    schema_malformed = bool(parsed.pop("_schema_malformed", False))
+    raw_output_lower = (raw_output or "").lower()
+
+    reasoning_text = str(parsed.get("reasoning", "")).strip()
+    heuristic_text = reasoning_text if reasoning_text and not _looks_like_schema_echo(reasoning_text) else ""
+    if not heuristic_text and not schema_malformed and not _looks_like_schema_echo(raw_output):
+        heuristic_text = raw_output
 
     same_person_signal, same_person_fallback = _infer_boolean_signal(
-        raw_output,
+        heuristic_text,
         positive_terms=[
             "same person",
             "same individual",
@@ -205,18 +519,16 @@ def _normalize_parsed_vlm_output(parsed: dict, raw_output: str) -> dict:
         neutral_confidence=0.55,
     )
     live_signal, live_fallback = _infer_boolean_signal(
-        raw_output,
+        heuristic_text,
         positive_terms=[
             "live person",
             "real person",
             "appears live",
             "looks live",
-            "authentication attempts are real",
             "blink detected",
-            "eye blink",
             "eyes are different",
             "natural micro-movement",
-            "real 3d depth",
+            "natural movement",
         ],
         negative_terms=[
             "not live",
@@ -236,34 +548,28 @@ def _normalize_parsed_vlm_output(parsed: dict, raw_output: str) -> dict:
             "bezel",
             "held up",
             "holding a",
-            "showing a face on",
             "video replay",
             "video playing",
             "no blink",
             "frozen eyes",
             "identical eye",
-            "eyes are identical",
             "same eye state",
             "no micro-movement",
             "static",
             "flat appearance",
             "2d surface",
-            "moir\u00e9",
             "pixel grid",
             "scan lines",
-            "picture frame",
             "spoofing",
             "spoof",
         ],
         neutral_confidence=0.6,
     )
     authentic_signal, authentic_fallback = _infer_boolean_signal(
-        raw_output,
+        heuristic_text,
         positive_terms=[
             "authentic",
             "looks authentic",
-            "no signs of spoof",
-            "no signs of manipulation",
             "appears real",
             "genuine face",
             "real face",
@@ -293,9 +599,31 @@ def _normalize_parsed_vlm_output(parsed: dict, raw_output: str) -> dict:
         neutral_confidence=0.6,
     )
 
-    same_person = bool(parsed.get("same_person", same_person_signal if same_person_signal is not None else True))
-    is_live = bool(parsed.get("is_live", live_signal if live_signal is not None else True))
-    is_authentic = bool(parsed.get("is_authentic", authentic_signal if authentic_signal is not None else True))
+    same_person_value = _coerce_bool(parsed.get("same_person"))
+    live_value = _coerce_bool(parsed.get("is_live"))
+    authentic_value = _coerce_bool(parsed.get("is_authentic"))
+
+    same_person = (
+        same_person_value
+        if same_person_value is not None
+        else same_person_signal
+        if same_person_signal is not None
+        else False if schema_malformed else True
+    )
+    is_live = (
+        live_value
+        if live_value is not None
+        else live_signal
+        if live_signal is not None
+        else False if schema_malformed else True
+    )
+    is_authentic = (
+        authentic_value
+        if authentic_value is not None
+        else authentic_signal
+        if authentic_signal is not None
+        else False if schema_malformed else True
+    )
 
     same_person_confidence = _clamp_score(parsed.get("same_person_confidence"), default=0.0)
     liveness_confidence = _clamp_score(parsed.get("liveness_confidence"), default=0.0)
@@ -308,7 +636,9 @@ def _normalize_parsed_vlm_output(parsed: dict, raw_output: str) -> dict:
             and "same_person_confidence" not in raw_output_lower
         )
     ):
-        same_person_confidence = same_person_fallback if same_person else 1.0 - same_person_fallback
+        same_person_confidence = (
+            same_person_fallback if same_person else 1.0 - same_person_fallback
+        )
     if (
         liveness_confidence <= 0.0
         or (
@@ -324,7 +654,9 @@ def _normalize_parsed_vlm_output(parsed: dict, raw_output: str) -> dict:
             and "authenticity_confidence" not in raw_output_lower
         )
     ):
-        authenticity_confidence = authentic_fallback if is_authentic else 1.0 - authentic_fallback
+        authenticity_confidence = (
+            authentic_fallback if is_authentic else 1.0 - authentic_fallback
+        )
 
     overall_score = _clamp_score(parsed.get("overall_score"), default=0.0)
     if overall_score <= 0.0 or (overall_score == 0.5 and "overall_score" not in raw_output_lower):
@@ -340,8 +672,8 @@ def _normalize_parsed_vlm_output(parsed: dict, raw_output: str) -> dict:
     if not isinstance(red_flags, list):
         red_flags = []
 
-    reasoning = str(parsed.get("reasoning", "")).strip()
-    if not reasoning:
+    reasoning = reasoning_text
+    if not reasoning or reasoning.startswith("{") and reasoning.endswith("}"):
         reasoning = _build_reasoning_summary(
             same_person=same_person,
             same_person_confidence=same_person_confidence,
@@ -349,29 +681,34 @@ def _normalize_parsed_vlm_output(parsed: dict, raw_output: str) -> dict:
             liveness_confidence=liveness_confidence,
             is_authentic=is_authentic,
             authenticity_confidence=authenticity_confidence,
-            red_flags=red_flags,
-        )
-    elif reasoning.startswith("{") and reasoning.endswith("}"):
-        reasoning = _build_reasoning_summary(
-            same_person=same_person,
-            same_person_confidence=same_person_confidence,
-            is_live=is_live,
-            liveness_confidence=liveness_confidence,
-            is_authentic=is_authentic,
-            authenticity_confidence=authenticity_confidence,
+            overall_score=overall_score,
             red_flags=red_flags,
         )
 
+    secured = _apply_security_overrides(
+        same_person=same_person,
+        same_person_confidence=same_person_confidence,
+        is_live=is_live,
+        liveness_confidence=liveness_confidence,
+        is_authentic=is_authentic,
+        authenticity_confidence=authenticity_confidence,
+        overall_score=overall_score,
+        reasoning=reasoning,
+        red_flags=red_flags,
+        raw_output=raw_output,
+        schema_malformed=schema_malformed,
+    )
+
     return {
-        "same_person": same_person,
-        "same_person_confidence": float(np.clip(same_person_confidence, 0.0, 1.0)),
-        "is_live": is_live,
-        "liveness_confidence": float(np.clip(liveness_confidence, 0.0, 1.0)),
-        "is_authentic": is_authentic,
-        "authenticity_confidence": float(np.clip(authenticity_confidence, 0.0, 1.0)),
-        "overall_score": float(np.clip(overall_score, 0.0, 1.0)),
-        "reasoning": reasoning,
-        "red_flags": red_flags,
+        "same_person": bool(secured["same_person"]),
+        "same_person_confidence": float(np.clip(secured["same_person_confidence"], 0.0, 1.0)),
+        "is_live": bool(secured["is_live"]),
+        "liveness_confidence": float(np.clip(secured["liveness_confidence"], 0.0, 1.0)),
+        "is_authentic": bool(secured["is_authentic"]),
+        "authenticity_confidence": float(np.clip(secured["authenticity_confidence"], 0.0, 1.0)),
+        "overall_score": float(np.clip(secured["overall_score"], 0.0, 1.0)),
+        "reasoning": str(secured["reasoning"]).strip(),
+        "red_flags": list(secured["red_flags"]),
     }
 
 
@@ -382,16 +719,64 @@ def _build_reasoning_summary(
     liveness_confidence: float,
     is_authentic: bool,
     authenticity_confidence: float,
+    overall_score: float,
     red_flags: list[str],
 ) -> str:
     """Build a readable fallback explanation when the model omits reasoning."""
-    parts = [
-        f"Identity {'matches' if same_person else 'does not match'} ({same_person_confidence:.0%})",
-        f"liveness {'passes' if is_live else 'fails'} ({liveness_confidence:.0%})",
-        f"authenticity {'passes' if is_authentic else 'fails'} ({authenticity_confidence:.0%})",
-    ]
+    reg_summary = (
+        "Registration reference summary: stored registration frames are treated as the baseline for stable facial structure."
+    )
+    auth_summary = (
+        "Authentication frame summary: current login frames were checked for device spoofing, screen boundaries, full-face visibility, blink evidence, and natural motion."
+    )
 
-    summary = ", ".join(parts) + "."
+    if _red_flags_contain(
+        red_flags,
+        "visible_mobile_phone",
+        "visible_tablet",
+        "visible_laptop_screen",
+        "visible_monitor_or_tv",
+        "printed_photo",
+        "picture_or_poster",
+        "replayed_video",
+        "screen_bezel_or_edges",
+        "face_inside_secondary_rectangle",
+        "face_occluded_by_device",
+    ):
+        device_summary = (
+            "Device and screen analysis: the authentication frames indicate spoof evidence consistent with a phone, screen, printed image, or replayed media attack."
+        )
+    else:
+        device_summary = (
+            "Device and screen analysis: no strong phone, screen, or printed-media evidence was inferred from the available output."
+        )
+
+    if _red_flags_contain(red_flags, "frozen_eye_state"):
+        blink_summary = (
+            f"Eye blink and motion analysis: blink evidence is weak and the eye state appears frozen across frames, so liveness remains low at {liveness_confidence:.0%}."
+        )
+    else:
+        blink_summary = (
+            f"Eye blink and motion analysis: liveness {'passes' if is_live else 'fails'} with confidence {liveness_confidence:.0%}."
+        )
+
+    identity_summary = (
+        f"Identity comparison: the authentication face {'matches' if same_person else 'does not match'} the registration reference frames with confidence {same_person_confidence:.0%}."
+    )
+    verdict_summary = (
+        f"Final verdict: authenticity {'passes' if is_authentic else 'fails'} at {authenticity_confidence:.0%}, and the overall authentication score is {overall_score:.0%}."
+    )
+
+    summary = " ".join(
+        [
+            reg_summary,
+            auth_summary,
+            device_summary,
+            blink_summary,
+            identity_summary,
+            verdict_summary,
+        ]
+    )
     if red_flags:
         summary += f" Red flags: {', '.join(red_flags)}."
 
@@ -831,25 +1216,39 @@ class VLMReasoner:
 
         try:
             with self._infer_lock:
-                frame_limit = 1 if self.model_name in {"moondream2", "smolvlm-256m"} else 3
+                from app.vlm_config import (
+                    VLM_AUTH_FRAME_COUNT,
+                    VLM_JUDGE_PROMPT,
+                    VLM_JUDGE_PROMPT_SIMPLE,
+                    VLM_JUDGE_PROMPT_SMALL_MODEL,
+                    VLM_MOONDREAM_AUTH_FRAME_COUNT,
+                    VLM_MOONDREAM_REF_FRAME_COUNT,
+                    VLM_REF_FRAME_COUNT,
+                    VLM_SMALL_MODEL_AUTH_FRAME_COUNT,
+                    VLM_SMALL_MODEL_REF_FRAME_COUNT,
+                )
+
+                if self.model_name == "qwen2.5-vl-3b":
+                    reg_frame_limit = VLM_REF_FRAME_COUNT
+                    auth_frame_limit = VLM_AUTH_FRAME_COUNT
+                    prompt = VLM_JUDGE_PROMPT
+                elif self.model_name == "smolvlm-256m":
+                    reg_frame_limit = VLM_SMALL_MODEL_REF_FRAME_COUNT
+                    auth_frame_limit = VLM_SMALL_MODEL_AUTH_FRAME_COUNT
+                    prompt = VLM_JUDGE_PROMPT_SMALL_MODEL
+                else:
+                    reg_frame_limit = VLM_MOONDREAM_REF_FRAME_COUNT
+                    auth_frame_limit = VLM_MOONDREAM_AUTH_FRAME_COUNT
+                    prompt = VLM_JUDGE_PROMPT_SIMPLE
 
                 # Convert frames to PIL images
-                reg_subset = self._select_frame_subset(registration_frames, frame_limit)
-                auth_subset = self._select_frame_subset(authentication_frames, frame_limit)
+                reg_subset = self._select_frame_subset(registration_frames, reg_frame_limit)
+                auth_subset = self._select_frame_subset(authentication_frames, auth_frame_limit)
                 reg_pils = [_bgr_to_pil(f) for f in reg_subset]
                 auth_pils = [_bgr_to_pil(f) for f in auth_subset]
 
                 # Combine: registration frames first, then auth frames
                 all_images = reg_pils + auth_pils
-
-                # Select prompt based on model
-                from app.vlm_config import VLM_JUDGE_PROMPT, VLM_JUDGE_PROMPT_SIMPLE
-
-                prompt = (
-                    VLM_JUDGE_PROMPT
-                    if self.model_name == "qwen2.5-vl-3b"
-                    else VLM_JUDGE_PROMPT_SIMPLE
-                )
 
                 # Add frame context to prompt
                 n_reg = len(reg_pils)
@@ -857,7 +1256,10 @@ class VLMReasoner:
                 frame_context = (
                     f"\n\nNote: You are seeing {n_reg + n_auth} images total. "
                     f"The first {n_reg} image(s) are REGISTRATION reference frames. "
-                    f"The last {n_auth} image(s) are AUTHENTICATION attempt frames."
+                    f"The last {n_auth} image(s) are AUTHENTICATION attempt frames. "
+                    "Use the registration frames for stable identity cues. "
+                    "Use the authentication frames for device detection, screen detection, "
+                    "hand-held media detection, full-face visibility, eye blink, and motion."
                 )
                 prompt += frame_context
 

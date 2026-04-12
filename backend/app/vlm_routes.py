@@ -35,6 +35,7 @@ from app.vlm_config import (
     FUSION_TRADITIONAL_WEIGHT,
     FUSION_VLM_WEIGHT,
     VLM_AUTH_FRAME_COUNT,
+    VLM_FORCE_DENY_RED_FLAGS,
     VLM_VETO_CONFIDENCE,
     detect_available_hardware,
 )
@@ -335,6 +336,10 @@ async def vlm_authenticate(
                 + FUSION_VLM_WEIGHT * judgment.overall_score
             )
 
+            force_deny_from_flags = any(
+                flag in set(judgment.red_flags)
+                for flag in VLM_FORCE_DENY_RED_FLAGS
+            )
             vlm_denies = (
                 not judgment.same_person
                 or not judgment.is_live
@@ -342,7 +347,10 @@ async def vlm_authenticate(
             )
             veto_confidence = 1.0 - judgment.overall_score
 
-            if vlm_denies and veto_confidence >= VLM_VETO_CONFIDENCE:
+            if force_deny_from_flags:
+                final_decision = "DENY"
+                vlm_override = True
+            elif vlm_denies and veto_confidence >= VLM_VETO_CONFIDENCE:
                 final_decision = "DENY"
                 vlm_override = True
 
