@@ -336,8 +336,9 @@ async def vlm_authenticate(
                 + FUSION_VLM_WEIGHT * judgment.overall_score
             )
 
+            judgment_red_flag_set = set(judgment.red_flags)
             force_deny_from_flags = any(
-                flag in set(judgment.red_flags)
+                flag in judgment_red_flag_set
                 for flag in VLM_FORCE_DENY_RED_FLAGS
             )
             vlm_denies = (
@@ -355,6 +356,11 @@ async def vlm_authenticate(
                 vlm_override = True
 
             vlm_reasoning = _format_vlm_reasoning(judgment.reasoning, judgment.red_flags)
+            if force_deny_from_flags:
+                safeguard_reason = (
+                    "Hybrid safeguard denied the login because the VLM returned explicit spoof red flags."
+                )
+                vlm_reasoning = f"{safeguard_reason}\n\n{vlm_reasoning}".strip()
             if not vlm_reasoning:
                 vlm_reasoning = "VLM analysis completed without additional commentary."
 
