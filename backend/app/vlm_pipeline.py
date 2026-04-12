@@ -13,14 +13,12 @@ This module is ADDITIVE — does not modify any existing pipeline code.
 """
 
 import logging
-import os
 import time
-import uuid
 from dataclasses import dataclass, field
 from typing import Optional
 
-import cv2
 import numpy as np
+from app.video_utils import extract_evenly_spaced_frames
 
 logger = logging.getLogger(__name__)
 
@@ -190,38 +188,11 @@ class VLMAuthPipeline:
         count: int = 3,
     ) -> list[np.ndarray]:
         """Extract evenly spaced frames from video bytes."""
-        tmp_path = os.path.join("data", f"tmp_vlm_{uuid.uuid4().hex}.webm")
         try:
-            os.makedirs("data", exist_ok=True)
-            with open(tmp_path, "wb") as f:
-                f.write(video_bytes)
-
-            cap = cv2.VideoCapture(tmp_path)
-            if not cap.isOpened():
-                logger.warning("Cannot open video for VLM frame extraction")
-                return []
-
-            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            if total < 1:
-                cap.release()
-                return []
-
-            indices = np.linspace(0, total - 1, min(count, total), dtype=int)
-            frames = []
-
-            for idx in indices:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
-                ret, frame = cap.read()
-                if ret:
-                    frames.append(frame)
-
-            cap.release()
-            logger.info(f"Extracted {len(frames)} frames from video ({total} total)")
+            frames = extract_evenly_spaced_frames(video_bytes, count=count, suffix=".webm")
+            logger.info("Extracted %s VLM auth frames from uploaded video", len(frames))
             return frames
 
         except Exception as e:
             logger.error(f"Frame extraction failed: {e}")
             return []
-        finally:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)

@@ -354,3 +354,20 @@ Latest code-aware additions now documented:
 - Conservative VLM behavior: traditional pipeline runs first, VLM only reasons after a traditional grant, and VLM failure falls back to the traditional path.
 
 Current working-tree note: the VLM registration backend route currently expects repeated `face_data` image files, while `VLMRegister.jsx` sends a `video` upload. The docs now call this out explicitly so the integration contract can be aligned before a VLM browser demo.
+
+## Additional Deep Documentation And Interactive Presentation
+
+The second documentation expansion adds a deeper model explanation, complete system flow reference, and a static animated presentation.
+
+New files:
+
+- `docs/AI_MODELS_DETAILED_DEEP_DIVE.md`: detailed explanation of YuNet, ArcFace, MobileNetV3 liveness, rPPG, deepfake detection, MediaPipe challenges, VLM reasoning, and decision fusion.
+- `docs/COMPLETE_SYSTEM_FLOW_DETAILED.md`: full flow from browser camera capture to backend models, storage, logging, JWT response, and frontend result display.
+- `docs/SLIDE_DECK_SCRIPT_AND_ANIMATION_GUIDE.md`: slide-by-slide presenter script, animation explanation, Q and A preparation, and demo checklist.
+- `docs/interactive_auth_presentation/`: standalone animated HTML/CSS/JavaScript presentation.
+
+Open the interactive presentation directly:
+
+```text
+docs/interactive_auth_presentation/index.html
+```

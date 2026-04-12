@@ -331,3 +331,16 @@ Read these for full details:
 - `docs/SETUP_AND_OPERATIONS.md`
 - `docs/SECURITY_PRIVACY_LIMITATIONS.md`
 - `docs/EVALUATION_AND_REPORTING.md`
+
+## 14. Additional Deep Documentation And Interactive Presentation
+
+The project now includes an expanded documentation and presentation package:
+
+- `docs/AI_MODELS_DETAILED_DEEP_DIVE.md`: complete model-by-model explanation.
+- `docs/COMPLETE_SYSTEM_FLOW_DETAILED.md`: complete user, frontend, backend, model, storage, and decision flow.
+- `docs/SLIDE_DECK_SCRIPT_AND_ANIMATION_GUIDE.md`: full presenter script and animation guide.
+- `docs/interactive_auth_presentation/index.html`: interactive animated presentation.
+- `docs/interactive_auth_presentation/styles.css`: visual design and motion.
+- `docs/interactive_auth_presentation/app.js`: slide logic, simulator, pipeline animation, and dynamic charts.
+
+The interactive presentation is static and can be opened directly in a browser without running the frontend dev server.

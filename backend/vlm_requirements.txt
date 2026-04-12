@@ -25,6 +25,7 @@ protobuf>=3.20.0
 # ─── moondream2 specific ──────────────────────────────────────────────
 # moondream2 uses timm internally
 timm>=0.9.0
+imageio-ffmpeg>=0.5.1
 
 # ─── Colab notebook extras ────────────────────────────────────────────
 # gradio>=4.0.0  # Only needed for Colab demo notebook

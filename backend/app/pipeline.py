@@ -36,6 +36,7 @@ from app.models.liveness import LivenessDetector, LivenessResult
 from app.models.deepfake import DeepfakeDetector, DeepfakeResult
 from app.models.instruction_verifier import InstructionVerifier, InstructionResult
 from app.instructions import get_instruction
+from app.video_utils import decode_video_bytes
 from app.config import (
     FACE_CONFIDENCE_THRESHOLD, FUSION_FINAL_THRESHOLD,
     DEEPFAKE_FLAG_THRESHOLD, SIMILARITY_THRESHOLD,
@@ -206,32 +207,11 @@ class AuthPipeline:
 
     def _decode_video_to_frames(self, video_bytes: bytes) -> list[np.ndarray]:
         """Decode video bytes (WebM/MP4) to a list of BGR frames."""
-        import tempfile, os
-        temp_path = None
-        frames = []
         try:
-            # Write bytes to temp file
-            fd, temp_path = tempfile.mkstemp(suffix=".webm")
-            os.close(fd)
-            with open(temp_path, "wb") as f:
-                f.write(video_bytes)
-
-            cap = cv2.VideoCapture(temp_path)
-            if not cap.isOpened():
-                logger.error("Failed to open video")
-                return frames
-
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                frames.append(frame)
-            cap.release()
+            frames = decode_video_bytes(video_bytes, suffix=".webm")
         except Exception as e:
             logger.error(f"Video decode error: {e}")
-        finally:
-            if temp_path and os.path.exists(temp_path):
-                os.unlink(temp_path)
+            frames = []
 
         logger.info(f"Decoded {len(frames)} frames from video")
         return frames

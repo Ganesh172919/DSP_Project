@@ -5,17 +5,17 @@ import {
   scheduleFrameCaptures,
 } from '../utils/videoCapture';
 
-const BrainIcon = () => (
+const EyeIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="icon-sm">
-    <path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z" />
-    <path d="M10 21h4M12 17v4" />
+    <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" />
+    <circle cx="12" cy="12" r="3" />
   </svg>
 );
 
-const RECORD_DURATION = 5;
+const RECORD_DURATION = 3;
 const AUTH_FRAME_COUNT = 3;
 
-export default function VLMLogin() {
+export default function PureVLMLogin() {
   const [step, setStep] = useState(1);
   const [username, setUsername] = useState('');
   const [videoBlob, setVideoBlob] = useState(null);
@@ -138,17 +138,17 @@ export default function VLMLogin() {
       formData.append('username', username);
       formData.append('video', videoBlob, 'auth_video.webm');
       authFrameBlobs.forEach((blob, index) => {
-        formData.append('auth_frames', blob, `auth_frame_${index}.jpg`);
+        formData.append('auth_frames', blob, `pure_auth_frame_${index}.jpg`);
       });
 
-      const response = await client.post('/vlm/authenticate', formData, {
+      const response = await client.post('/vlm/authenticate/pure', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 900000,
       });
 
       setResult(response.data);
     } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Authentication failed');
+      setError(err.response?.data?.detail || err.message || 'Pure VLM authentication failed');
     }
 
     setLoading(false);
@@ -255,16 +255,16 @@ export default function VLMLogin() {
       <div className="card login-card vlm-card">
         <div className="card-header">
           <div className="vlm-badge">
-            <span className="vlm-badge-icon">AI</span>
-            <span>VLM Enhanced</span>
+            <span className="vlm-badge-icon">VLM</span>
+            <span>Pure VLM</span>
           </div>
-          <div className="card-icon"><BrainIcon /></div>
-          <h1>Hybrid VLM Authenticate</h1>
-          <p className="card-subtitle">Traditional pipeline first, VLM judge second</p>
+          <div className="card-icon"><EyeIcon /></div>
+          <h1>Pure VLM Authenticate</h1>
+          <p className="card-subtitle">Identity, liveness, and authenticity judged only by the VLM</p>
         </div>
 
         <div className="stepper">
-          {['Username', 'Record 5s', 'Analyze'].map((label, index) => (
+          {['Username', 'Record 3s', 'Reason'].map((label, index) => (
             <div
               key={label}
               className={`step-dot ${step > index + 1 ? 'completed' : ''} ${step === index + 1 ? 'active' : ''}`}
@@ -280,24 +280,24 @@ export default function VLMLogin() {
         {step === 1 && (
           <div className="step-content fade-in">
             <div className="form-group">
-              <label htmlFor="vlm-login-username">Username</label>
+              <label htmlFor="pure-vlm-username">Username</label>
               <input
-                id="vlm-login-username"
+                id="pure-vlm-username"
                 type="text"
                 className="form-input"
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
-                placeholder="Enter your registered username"
+                placeholder="Enter your VLM-registered username"
                 onKeyDown={(event) => event.key === 'Enter' && handleNext()}
                 autoFocus
               />
             </div>
 
             <div className="vlm-info-box">
-              <h4>Hybrid authentication</h4>
+              <h4>Pure VLM mode</h4>
               <p>
-                Your login still uses the working traditional face pipeline. If that grants access,
-                a Vision Language Model reviews the attempt as a second opinion.
+                This path does not use ArcFace, liveness CNNs, or the traditional deepfake detector.
+                It compares your stored VLM registration frames with 3 new frames from this recording.
               </p>
               <p className="warmup-status">
                 {warmupState === 'warming' && 'Preparing VLM model in the background...'}
@@ -315,10 +315,10 @@ export default function VLMLogin() {
         {step === 2 && (
           <div className="step-content fade-in">
             <div className="video-instructions">
-              <p>Look straight at the camera and keep your face visible.</p>
-              <p className="video-hint">We record 5 seconds and also capture 3 still frames for the VLM judge.</p>
+              <p>Hold steady, look into the camera, and keep your full face visible.</p>
+              <p className="video-hint">We record 3 seconds and capture 3 still frames for the VLM.</p>
               {warmupState === 'warming' && (
-                <p className="video-hint">Model warmup is still running. Recording can start now, but analysis will finish faster once warmup completes.</p>
+                <p className="video-hint">Model warmup is still running. You can continue, but the first analysis may take longer.</p>
               )}
             </div>
 
@@ -356,13 +356,13 @@ export default function VLMLogin() {
             {loading && !result && (
               <div className="processing-state">
                 <div className="processing-spinner" />
-                <h3>Running hybrid analysis...</h3>
-                <p>The first run can take longer while the VLM model downloads and warms up.</p>
+                <h3>Running pure VLM analysis...</h3>
+                <p>The first run can take longer while moondream downloads and loads on CPU.</p>
                 <div className="processing-steps">
-                  <div className="p-step active">Extracting video and VLM frames</div>
-                  <div className="p-step">Traditional recognition and liveness checks</div>
-                  <div className="p-step">Deepfake analysis</div>
-                  <div className="p-step">VLM judge reasoning</div>
+                  <div className="p-step active">Collecting VLM auth frames</div>
+                  <div className="p-step">Loading VLM registration frames</div>
+                  <div className="p-step">Identity and liveness reasoning</div>
+                  <div className="p-step">Authenticity and spoof checks</div>
                 </div>
               </div>
             )}
@@ -379,46 +379,18 @@ export default function VLMLogin() {
                     : `Reason: ${result.denial_reason || 'Unknown'}`}
                 </p>
 
-                {result.vlm_override && (
-                  <div className="alert alert-error" style={{ marginTop: '12px' }}>
-                    <span>!</span>
-                    <div className="alert-content">
-                      <div className="alert-title">VLM override</div>
-                      <div className="alert-detail">
-                        The traditional pipeline granted access, but the VLM judge vetoed the attempt.
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 <div className="vlm-section">
-                  <h3 className="vlm-section-title">Traditional pipeline</h3>
-                  <div className="scores-grid">
-                    <ScoreBar label="Face Match" value={result.scores?.traditional?.similarity} threshold={0.4} />
-                    <ScoreBar label="Liveness" value={result.scores?.traditional?.liveness} threshold={0.7} />
-                    <ScoreBar label="Deepfake" value={result.scores?.traditional?.deepfake} threshold={0.3} inverted />
+                  <h3 className="vlm-section-title">Pure VLM scores</h3>
+                  <div className="vlm-model-badge">
+                    Model: <strong>{result.vlm_model_used}</strong>
                   </div>
-                  <div className="result-meta">
-                    <span>
-                      Traditional: {result.traditional_decision} ({(result.traditional_confidence * 100).toFixed(1)}%)
-                    </span>
+                  <div className="scores-grid">
+                    <ScoreBar label="Identity" value={result.scores?.vlm_identity} threshold={0.6} />
+                    <ScoreBar label="Liveness" value={result.scores?.vlm_liveness} threshold={0.55} />
+                    <ScoreBar label="Authenticity" value={result.scores?.vlm_authenticity} threshold={0.55} />
+                    <ScoreBar label="Overall" value={result.scores?.vlm_overall} threshold={0.55} />
                   </div>
                 </div>
-
-                {result.vlm_invoked && result.scores?.vlm && Object.keys(result.scores.vlm).length > 0 && (
-                  <div className="vlm-section">
-                    <h3 className="vlm-section-title">VLM judge</h3>
-                    <div className="vlm-model-badge">
-                      Model: <strong>{result.vlm_model_used}</strong>
-                    </div>
-                    <div className="scores-grid">
-                      <ScoreBar label="Identity" value={result.scores.vlm.vlm_identity} threshold={0.6} />
-                      <ScoreBar label="Liveness" value={result.scores.vlm.vlm_liveness} threshold={0.55} />
-                      <ScoreBar label="Authenticity" value={result.scores.vlm.vlm_authenticity} threshold={0.55} />
-                      <ScoreBar label="Overall" value={result.scores.vlm.vlm_overall} threshold={0.55} />
-                    </div>
-                  </div>
-                )}
 
                 {result.vlm_reasoning && (
                   <div className="vlm-section">
@@ -433,18 +405,6 @@ export default function VLMLogin() {
                   </div>
                 )}
 
-                {!result.has_vlm_refs && (
-                  <div className="alert alert-info" style={{ marginTop: '12px' }}>
-                    <span>i</span>
-                    <div className="alert-content">
-                      <div className="alert-title">Missing VLM registration</div>
-                      <div className="alert-detail">
-                        Re-register on the VLM Register page to enable full VLM judging for this account.
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 {result.vlm_red_flags?.length > 0 && (
                   <div className="threat-flags">
                     <h4>VLM flags</h4>
@@ -454,19 +414,9 @@ export default function VLMLogin() {
                   </div>
                 )}
 
-                {result.threat_flags?.length > 0 && (
-                  <div className="threat-flags">
-                    <h4>Security flags</h4>
-                    {result.threat_flags.map((flag) => (
-                      <span key={flag} className="threat-badge">{flag}</span>
-                    ))}
-                  </div>
-                )}
-
                 <div className="result-meta">
                   <span>Total: {result.processing_time_ms?.toFixed(0)}ms</span>
                   <span> | VLM frames: {result.auth_frames_used ?? authFrameBlobs.length}</span>
-                  {result.vlm_invoked && <span> | Model: {result.vlm_model_used}</span>}
                 </div>
 
                 <button className="btn btn-secondary" onClick={handleReset} style={{ marginTop: '12px' }}>
@@ -481,13 +431,13 @@ export default function VLMLogin() {
   );
 }
 
-function ScoreBar({ label, value, threshold, inverted = false }) {
+function ScoreBar({ label, value, threshold }) {
   if (value === undefined || value === null) {
     return null;
   }
 
   const pct = Math.min(Math.max(value, 0), 1) * 100;
-  const isGood = inverted ? value < threshold : value >= threshold;
+  const isGood = value >= threshold;
 
   return (
     <div className="score-bar-item">

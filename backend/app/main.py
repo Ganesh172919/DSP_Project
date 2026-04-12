@@ -35,6 +35,7 @@ from app.crypto import encrypt_embedding, decrypt_embedding, create_jwt
 from app.pipeline import AuthPipeline
 from app.instructions import pick_random_instructions, get_all_instructions, get_instruction_stats
 from app.vlm_routes import vlm_router  # VLM hybrid authentication endpoints
+from app.video_utils import decode_video_bytes, infer_video_suffix, sample_evenly_spaced_frames
 
 # ─── Logging ────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -118,38 +119,12 @@ async def read_frames_from_upload(file: UploadFile, num_frames: int = 5) -> list
     if img is not None:
         return [img]
 
-    # Try as video
-    import tempfile
-    import os
+    suffix = infer_video_suffix(file.filename, file.content_type, default=".webm")
+    frames = decode_video_bytes(content, suffix=suffix)
+    if not frames:
+        raise HTTPException(status_code=400, detail="Cannot decode file as image or video")
 
-    tmp_path = os.path.join("data", f"tmp_{uuid.uuid4().hex}.mp4")
-    try:
-        with open(tmp_path, "wb") as f:
-            f.write(content)
-
-        cap = cv2.VideoCapture(tmp_path)
-        if not cap.isOpened():
-            raise HTTPException(status_code=400, detail="Cannot decode file as image or video")
-
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        if total_frames < num_frames:
-            num_frames = max(total_frames, 1)
-
-        indices = np.linspace(0, total_frames - 1, num_frames, dtype=int)
-        frames = []
-
-        for idx in indices:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
-            ret, frame = cap.read()
-            if ret:
-                frames.append(frame)
-
-        cap.release()
-        return frames
-
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+    return sample_evenly_spaced_frames(frames, num_frames)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

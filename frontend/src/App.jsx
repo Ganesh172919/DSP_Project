@@ -4,6 +4,7 @@ import Register from './pages/Register';
 import Login from './pages/Login';
 import VLMRegister from './pages/VLMRegister';
 import VLMLogin from './pages/VLMLogin';
+import PureVLMLogin from './pages/PureVLMLogin';
 
 /* Shield icon SVG */
 const ShieldIcon = () => (
@@ -47,7 +48,13 @@ export default function App() {
               to="/vlm-login"
               className={({ isActive }) => `nav-link vlm-nav-link ${isActive ? 'active' : ''}`}
             >
-              🧠 VLM Login
+              Hybrid VLM
+            </NavLink>
+            <NavLink
+              to="/vlm-pure"
+              className={({ isActive }) => `nav-link vlm-nav-link ${isActive ? 'active' : ''}`}
+            >
+              Pure VLM
             </NavLink>
           </div>
         </nav>
@@ -59,9 +66,9 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/vlm-register" element={<VLMRegister />} />
           <Route path="/vlm-login" element={<VLMLogin />} />
+          <Route path="/vlm-pure" element={<PureVLMLogin />} />
         </Routes>
       </div>
     </Router>
   );
 }
-

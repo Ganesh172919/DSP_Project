@@ -257,7 +257,7 @@ The latest version adds two VLM pages and three VLM backend endpoints.
 7. If the traditional result is `DENY`, the endpoint returns denial and skips VLM inference.
 8. If the traditional result is `GRANT`, authentication frames are extracted for VLM comparison.
 9. `VLMReasoner` asks Qwen or moondream for structured JSON judgment.
-10. `VLMAuthPipeline` fuses traditional and VLM scores.
+10. `VLMAuthPipeline` fuses traditional and VLM scores. The reasoning logic applies an ultra-strict verification protocol (Device/Media Check, Full Frame Depth, and Eye Blink Check) that automatically denies entry if a phone, tablet, or display is detected.
 11. The response includes final decision, traditional scores, VLM scores, VLM reasoning, model used, override status, and JWT or denial reason.
 
 More detail is documented in `docs/VLM_HYBRID_AUTHENTICATION.md`.

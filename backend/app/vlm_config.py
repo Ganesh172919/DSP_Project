@@ -6,7 +6,8 @@ It provides VLM-specific settings for the hybrid authentication pipeline.
 
 Supported models (auto-fallback order):
   1. Qwen2.5-VL-3B-Instruct (4-bit quantized, ~2.5GB VRAM, needs CUDA)
-  2. moondream2 (1.9B, ~1.5GB 4-bit / ~3.8GB fp16, works on CPU)
+  2. moondream2 (1.9B, best CPU quality when memory allows)
+  3. SmolVLM-256M-Instruct (lightweight CPU fallback for 8GB systems)
 """
 
 import os
@@ -16,6 +17,14 @@ from pathlib import Path
 from app.config import BASE_DIR, MODEL_DIR
 
 logger = logging.getLogger(__name__)
+
+# Hugging Face's Xet-backed download path can fail on some Windows setups.
+# Falling back to standard HTTP downloads is slower but more reliable here.
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
 
 # ─── Paths ───────────────────────────────────────────────────────────────────
 VLM_CACHE_DIR = MODEL_DIR / "vlm_cache"
@@ -27,21 +36,29 @@ VLM_REF_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
 # ─── Model IDs ───────────────────────────────────────────────────────────────
 QWEN_MODEL_ID = "Qwen/Qwen2.5-VL-3B-Instruct"
 MOONDREAM_MODEL_ID = "vikhyatk/moondream2"
+MOONDREAM_MODEL_REVISION = os.getenv("MOONDREAM_REVISION", "2025-06-21")
+SMOLVLM_MODEL_ID = "HuggingFaceTB/SmolVLM-256M-Instruct"
 
 # ─── Model Selection ────────────────────────────────────────────────────────
-# Override via environment variable: VLM_MODEL=qwen | moondream | disabled
-VLM_MODEL_OVERRIDE = os.getenv("VLM_MODEL", "auto")  # auto | qwen | moondream | disabled
+# Override via environment variable: VLM_MODEL=qwen | moondream | smolvlm | disabled
+VLM_MODEL_OVERRIDE = os.getenv("VLM_MODEL", "auto")  # auto | qwen | moondream | smolvlm | disabled
 
 # ─── Hardware Thresholds ────────────────────────────────────────────────────
 # Minimum VRAM (GB) needed for Qwen2.5-VL-3B at 4-bit
 QWEN_MIN_VRAM_GB = 3.0
-# Minimum system RAM (GB) needed for moondream2 at 4-bit/fp16
-MOONDREAM_MIN_RAM_GB = 4.0
+# Minimum total system RAM (GB) needed for moondream2 on CPU
+MOONDREAM_MIN_RAM_GB = 6.0
+# Preferred free RAM before loading moondream2 without warnings
+MOONDREAM_RECOMMENDED_AVAILABLE_RAM_GB = 2.0
+# Minimum total RAM (GB) needed for SmolVLM on CPU
+SMOLVLM_MIN_RAM_GB = 4.0
+# Low-memory guardrail where SmolVLM is preferred over moondream2
+SMOLVLM_PREFERRED_MAX_AVAILABLE_RAM_GB = 1.5
 # Maximum RAM the VLM should use (to stay within 8GB total)
 VLM_MAX_RAM_GB = float(os.getenv("VLM_MAX_RAM_GB", "5.0"))
 
 # ─── VLM Inference Settings ────────────────────────────────────────────────
-VLM_MAX_NEW_TOKENS = 512
+VLM_MAX_NEW_TOKENS = 300
 VLM_TEMPERATURE = 0.1  # low temperature for deterministic reasoning
 VLM_TOP_P = 0.9
 
@@ -64,27 +81,65 @@ FUSION_VLM_WEIGHT = 0.40
 
 # ─── Prompt Templates ──────────────────────────────────────────────────────
 
-VLM_JUDGE_PROMPT = """You are a facial authentication security system. Your job is to compare a registered user's face with an authentication attempt and determine if they are the same real, live person.
+VLM_JUDGE_PROMPT = """You are an ULTRA-STRICT facial authentication security system. Your #1 job is to REJECT spoofing attacks. Be extremely suspicious and paranoid.
 
-TASK: Analyze the provided images carefully.
+TASK: Analyze the provided images VERY carefully using the following strict 3-stage pipeline.
 - The FIRST image(s) are from the user's REGISTRATION (reference identity).
 - The LAST image(s) are from the current AUTHENTICATION attempt.
 
-Evaluate these aspects:
+═══════════════════════════════════════════════════════════════
+STAGE 1 — DEVICE / MEDIA DETECTION (CRITICAL — check this FIRST)
+═══════════════════════════════════════════════════════════════
+Before doing ANYTHING else, carefully scan the AUTHENTICATION image(s) for ANY of these:
+  • A mobile phone, smartphone, or tablet being held up to the camera
+  • A laptop screen, monitor, TV, or any electronic display
+  • A printed photograph or paper being held up
+  • A picture frame or poster containing a face
+  • A video playing on any device
+  • Any rectangular glowing screen edge, bezel, or device frame visible
+  • Fingers or hands holding a device that displays a face
+  • A face that appears INSIDE a smaller rectangular region (screen-within-a-frame)
+  • Moiré patterns, pixel grids, or scan lines from a digital screen
+  • Reflections on glass/screen surface overlapping the face
 
-1. IDENTITY MATCH: Are the registration and authentication images showing the same person?
-   - Compare: facial bone structure, nose shape, eye spacing, eyebrow shape, jawline, ear shape, unique marks (moles, scars).
-   - Account for: different lighting, slight angle changes, natural expression variation.
+IF YOU DETECT ANY DEVICE OR MEDIA: immediately set is_live=false, is_authentic=false, liveness_confidence ≤ 0.1, authenticity_confidence ≤ 0.1, overall_score ≤ 0.1. This is a SPOOFING ATTACK. Do NOT proceed to identity matching.
 
-2. LIVENESS: Does the authentication image show a live person in front of a real camera?
-   - Look for: natural skin texture (pores, fine lines), realistic eye reflections, natural color gradients.
-   - Suspicious signs: flat/uniform lighting, lack of depth, moire patterns, screen edges, paper texture.
+═══════════════════════════════════════════════════════════════
+STAGE 2 — REAL FACE IN FULL FRAME VERIFICATION
+═══════════════════════════════════════════════════════════════
+ONLY if Stage 1 passes (no device detected), check:
+  • The face must fill the frame NATURALLY — like a person sitting in front of a webcam
+  • There must be visible 3D depth cues: natural shadow gradients under the nose, chin, and eye sockets; visible ear(s) receding in perspective; neck and shoulders visible below the face
+  • Skin must show natural texture: pores, fine lines, micro-imperfections, natural color variations
+  • Background should look like a real room environment (walls, furniture, etc.) — NOT a flat/uniform background from a screen capture
+  • Lighting on the face must be consistent with the visible environment and show natural falloff
+  • Check for flat, poster-like appearance that indicates a 2D surface
 
-3. AUTHENTICITY: Any signs of spoofing, deepfake, or manipulation?
-   - Check for: unnatural skin smoothness, blending artifacts around face edges, inconsistent lighting angles, warping.
-   - Check for: printed photo signs, screen replay signs, mask edges.
+═══════════════════════════════════════════════════════════════
+STAGE 3 — EYE BLINK & LIVENESS CROSS-FRAME CHECK
+═══════════════════════════════════════════════════════════════
+Compare across the authentication frame(s):
+  • Are the person's eyes in DIFFERENT states across frames? (e.g., open in one, mid-blink or closed in another) — this is STRONG evidence of liveness
+  • If eyes are in the EXACT same position and openness across ALL frames, this is suspicious — a photo or static replay will have identical eye states
+  • Look for any subtle expression micro-changes between frames (real people have involuntary micro-movements)
+  • Check for natural specular highlights in the eyes that shift position between frames (real 3D eyes reflect light differently as the person micro-moves)
+  • If ONLY one frame is available: look for natural blink-related features — are the eyes at a natural openness, or frozen wide-open like a photo?
 
-You MUST respond ONLY with a valid JSON object (no extra text before or after):
+═══════════════════════════════════════════════════════════════
+STAGE 4 — IDENTITY MATCH (only if Stages 1-3 pass)
+═══════════════════════════════════════════════════════════════
+  • Compare the REGISTRATION face with the AUTHENTICATION face
+  • Check: facial bone structure, nose shape, eye spacing, eyebrow shape, jawline, ear shape, unique marks (moles, scars, freckles)
+  • Account for: different lighting, slight angle changes, natural expression variation
+  • Be strict: if facial structure differs significantly, set same_person=false
+
+CRITICAL RULES:
+  1. When in DOUBT, always DENY. False rejection is better than false acceptance.
+  2. If you see ANY phone, screen, or printed media → automatic DENY, overall_score ≤ 0.1
+  3. A real live person MUST show natural 3D depth, skin texture, and environmental context
+  4. If eyes are identical/frozen across multiple frames → strongly suspect a photo/video replay
+
+Respond ONLY with a valid JSON object (no extra text before or after):
 {
   "same_person": true or false,
   "same_person_confidence": 0.0 to 1.0,
@@ -93,13 +148,21 @@ You MUST respond ONLY with a valid JSON object (no extra text before or after):
   "is_authentic": true or false,
   "authenticity_confidence": 0.0 to 1.0,
   "overall_score": 0.0 to 1.0,
-  "reasoning": "Your detailed analysis explaining the decision",
-  "red_flags": ["list any concerns, or empty list if none"]
+  "reasoning": "Describe what you see step-by-step: Stage 1 (device check), Stage 2 (face quality), Stage 3 (blink/liveness), Stage 4 (identity). Be specific about what evidence you found.",
+  "red_flags": ["list every concern found, or empty list if truly none"]
 }"""
 
-VLM_JUDGE_PROMPT_SIMPLE = """Look at these face images. The first image is the registered user. The second image is an authentication attempt.
+VLM_JUDGE_PROMPT_SIMPLE = """You are a STRICT anti-spoofing face authentication system. Analyze these images carefully.
 
-Are they the same person? Is the person in the second image real (not a photo, screen, or deepfake)?
+The FIRST image = registered user. The LAST image = authentication attempt.
+
+CHECK IN THIS ORDER:
+1. DEVICE CHECK: Is there ANY mobile phone, tablet, laptop screen, printed photo, or video display visible in the authentication image? If YES → is_live=false, is_authentic=false, overall_score=0.05. This is a spoofing attack.
+2. FACE CHECK: Does the face fill the frame naturally like a real person at a webcam? Look for 3D depth (shadows under nose/chin), real skin texture (pores, imperfections), real environment behind them. A flat, screen-like, or paper-like appearance = DENY.
+3. BLINK CHECK: Compare eye states across frames. If eyes are frozen/identical = suspicious (photo or static replay). Different eye states across frames = evidence of real liveness.
+4. IDENTITY: Same person in registration and auth images?
+
+When in doubt, DENY. A phone showing a face is NOT a real person.
 
 Respond ONLY in JSON:
 {
@@ -110,7 +173,7 @@ Respond ONLY in JSON:
   "is_authentic": true/false,
   "authenticity_confidence": 0.0-1.0,
   "overall_score": 0.0-1.0,
-  "reasoning": "brief explanation",
+  "reasoning": "step-by-step: device check result, face check result, blink check result, identity result",
   "red_flags": []
 }"""
 
@@ -182,21 +245,50 @@ def select_vlm_model():
         logger.info(f"VLM: Using moondream2 (forced, {device})")
         return MOONDREAM_MODEL_ID, "fp16", device
 
+    if VLM_MODEL_OVERRIDE == "smolvlm":
+        device = "cuda" if hw["cuda_available"] else "cpu"
+        logger.info(f"VLM: Using SmolVLM-256M-Instruct (forced, {device})")
+        return SMOLVLM_MODEL_ID, "bf16", device
+
     # Auto selection
     # Priority 1: Qwen on GPU (best accuracy)
     if hw["cuda_available"] and hw["vram_gb"] >= QWEN_MIN_VRAM_GB:
         logger.info("VLM auto-selected: Qwen2.5-VL-3B-Instruct (4-bit, CUDA)")
         return QWEN_MODEL_ID, "4bit", "cuda"
 
-    # Priority 2: moondream2 (works on CPU, fits in 8GB RAM)
-    if hw["ram_available_gb"] >= MOONDREAM_MIN_RAM_GB:
+    # Priority 2: moondream2 on CPU when there is enough headroom.
+    if (
+        hw["ram_gb"] >= MOONDREAM_MIN_RAM_GB
+        and hw["ram_available_gb"] >= MOONDREAM_RECOMMENDED_AVAILABLE_RAM_GB
+    ):
         device = "cuda" if hw["cuda_available"] else "cpu"
         logger.info(f"VLM auto-selected: moondream2 ({device})")
+        return MOONDREAM_MODEL_ID, "fp16", device
+
+    # Priority 3: lightweight CPU fallback for low-memory Windows machines.
+    if hw["ram_gb"] >= SMOLVLM_MIN_RAM_GB:
+        device = "cuda" if hw["cuda_available"] else "cpu"
+        if hw["ram_available_gb"] <= SMOLVLM_PREFERRED_MAX_AVAILABLE_RAM_GB:
+            logger.warning(
+                "VLM auto-selected: SmolVLM-256M-Instruct (%s) because available RAM "
+                "is only %.1fGB. This avoids moondream2 paging-file failures.",
+                device,
+                hw["ram_available_gb"],
+            )
+        else:
+            logger.info(f"VLM auto-selected: SmolVLM-256M-Instruct ({device})")
+        return SMOLVLM_MODEL_ID, "bf16", device
+
+    # Fallback for borderline systems that already have moondream cached locally.
+    moondream_cache_dir = VLM_CACHE_DIR / "models--vikhyatk--moondream2"
+    if moondream_cache_dir.exists():
+        device = "cuda" if hw["cuda_available"] else "cpu"
+        logger.info(f"VLM auto-selected from cache: moondream2 ({device})")
         return MOONDREAM_MODEL_ID, "fp16", device
 
     # Not enough resources
     logger.warning(
         f"VLM: Insufficient resources (VRAM={hw['vram_gb']}GB, "
-        f"RAM_avail={hw['ram_available_gb']}GB). VLM disabled."
+        f"RAM_total={hw['ram_gb']}GB, RAM_avail={hw['ram_available_gb']}GB). VLM disabled."
     )
     return None, None, None
